@@ -1,0 +1,27 @@
+{
+  "name": "healthclaw",
+  "version": "1.0.0",
+  "description": "Personal health advisor agent",
+  "main": "dist/index.js",
+  "type": "module",
+  "scripts": {
+    "server": "tsx src/server/index.ts",
+    "tui": "tsx src/tui/index.ts",
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "@types/ws": "^8.18.1",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.2"
+  },
+  "dependencies": {
+    "@mariozechner/pi-agent-core": "^0.62.0",
+    "@mariozechner/pi-ai": "^0.62.0",
+    "@mariozechner/pi-tui": "^0.62.0",
+    "@sinclair/typebox": "^0.34.48",
+    "chalk": "^5.6.2",
+    "ws": "^8.20.0"
+  }
+}
