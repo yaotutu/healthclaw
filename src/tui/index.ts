@@ -71,6 +71,7 @@ ws.on('open', () => {
     const userText = new Text(`${chalk.blue('You:')} ${text}`, 1, 1);
     (userText as any)._role = 'user';
     messageContainer.addChild(userText);
+    tui.requestRender();
 
     // 发送给服务器
     ws.send(JSON.stringify({
@@ -79,9 +80,9 @@ ws.on('open', () => {
       sessionId,
     }));
 
-    // 清空输入
-    // Editor 没有 setValue，需要重新创建或使用其他方式
-    // 暂时不处理清空
+    // 清空输入并刷新
+    editor.setText('');
+    tui.requestRender();
   };
 
   // 添加标题和说明
