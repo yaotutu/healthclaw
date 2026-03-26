@@ -3,6 +3,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { config } from 'dotenv';
 import { createFileStorage } from '../storage/file-storage.js';
+import type { Storage } from '../storage/index.js';
 import { createHealthAgent } from '../agent/index.js';
 import { createSessionManager } from './session.js';
 import { createWebSocketHandler } from './websocket.js';

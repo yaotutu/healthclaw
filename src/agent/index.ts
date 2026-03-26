@@ -1,5 +1,6 @@
 import { Agent } from '@mariozechner/pi-agent-core';
-import { getModel } from '@mariozechner/pi-ai';
+import { getModel, streamSimple } from '@mariozechner/pi-ai';
+import type { Context, AssistantMessageEventStream } from '@mariozechner/pi-ai';
 import type { Storage } from '../storage/index.js';
 import { HEALTH_ADVISOR_PROMPT } from './system-prompt.js';
 import { createRecordTool, createQueryTool } from './tools/index.js';
@@ -10,6 +11,30 @@ export interface CreateAgentOptions {
   provider?: string;
   model?: string;
 }
+
+// 创建带日志的 stream 函数
+const createLoggingStreamFn = () => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return (model: any, context: Context, options?: any): AssistantMessageEventStream => {
+    // 记录请求
+    const messagesSummary = context.messages.map(m => ({
+      role: m.role,
+      content: typeof m.content === 'string' ? m.content.slice(0, 200) :
+               Array.isArray(m.content) ? m.content.map(c => c.type) : m.content
+    }));
+
+    logger.info('[llm] === 请求 ===');
+    logger.info('[llm] model: %s', model.model || 'unknown');
+    logger.info('[llm] systemPrompt: %s', context.systemPrompt?.slice(0, 200) + '...');
+    logger.info('[llm] messages: %j', messagesSummary);
+    if (context.tools?.length) {
+      logger.info('[llm] tools: %j', context.tools.map(t => t.name));
+    }
+
+    // 调用原始 streamSimple
+    return streamSimple(model, context, options);
+  };
+};
 
 export const createHealthAgent = (options: CreateAgentOptions) => {
   const { storage, provider = 'anthropic', model } = options;
@@ -32,6 +57,7 @@ export const createHealthAgent = (options: CreateAgentOptions) => {
       messages: [],
       thinkingLevel: 'off',
     },
+    streamFn: createLoggingStreamFn(),
   });
 
   return agent;
