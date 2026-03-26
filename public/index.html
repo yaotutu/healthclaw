@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HealthClaw - 健康顾问</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f5f5f5;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    .header {
+      background: #2c3e50;
+      color: white;
+      padding: 12px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .header h1 {
+      font-size: 18px;
+      font-weight: 500;
+    }
+    .connection {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .connection input {
+      padding: 6px 10px;
+      border: none;
+      border-radius: 4px;
+      width: 200px;
+    }
+    .status {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #e74c3c;
+    }
+    .status.connected {
+      background: #2ecc71;
+    }
+    .chat-container {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .message {
+      max-width: 80%;
+      padding: 10px 14px;
+      border-radius: 12px;
+      line-height: 1.5;
+    }
+    .message.user {
+      align-self: flex-end;
+      background: #3498db;
+      color: white;
+    }
+    .message.assistant {
+      align-self: flex-start;
+      background: white;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+    }
+    .message.system {
+      align-self: center;
+      background: #ecf0f1;
+      color: #7f8c8d;
+      font-size: 12px;
+    }
+    .message.tool {
+      align-self: flex-start;
+      background: #fff3cd;
+      border-left: 3px solid #ffc107;
+      font-size: 13px;
+      max-width: 90%;
+    }
+    .input-container {
+      padding: 15px 20px;
+      background: white;
+      border-top: 1px solid #ddd;
+      display: flex;
+      gap: 10px;
+    }
+    .input-container textarea {
+      flex: 1;
+      padding: 10px 14px;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      resize: none;
+      height: 44px;
+      font-size: 14px;
+      font-family: inherit;
+    }
+    .input-container textarea:focus {
+      outline: none;
+      border-color: #3498db;
+    }
+    button {
+      padding: 10px 20px;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+    }
+    button.connect {
+      background: #27ae60;
+      color: white;
+    }
+    button.connect:hover {
+      background: #219a52;
+    }
+    button.send {
+      background: #3498db;
+      color: white;
+    }
+    button.send:hover {
+      background: #2980b9;
+    }
+    button.send:disabled {
+      background: #bdc3c7;
+      cursor: not-allowed;
+    }
+    button.clear {
+      background: #e74c3c;
+      color: white;
+    }
+    .session-info {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-left: 20px;
+    }
+    .session-info input {
+      padding: 6px 10px;
+      border: none;
+      border-radius: 4px;
+      width: 120px;
+    }
+    .session-info label {
+      font-size: 13px;
+      color: #bdc3c7;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>HealthClaw 健康顾问</h1>
+    <div class="connection">
+      <input type="text" id="wsUrl" placeholder="WebSocket URL">
+      <button class="connect" id="connectBtn" onclick="toggleConnection()">连接</button>
+      <div class="status" id="status"></div>
+    </div>
+    <div class="session-info">
+      <label>会话ID:</label>
+      <input type="text" id="sessionId" value="web-user-001">
+      <button class="clear" onclick="clearChat()">清空</button>
+    </div>
+  </div>
+
+  <div class="chat-container" id="chatContainer"></div>
+
+  <div class="input-container">
+    <textarea id="messageInput" placeholder="输入消息... (Enter 发送, Shift+Enter 换行)" rows="1"></textarea>
+    <button class="send" id="sendBtn" onclick="sendMessage()" disabled>发送</button>
+  </div>
+
+  <script>
+    let ws = null;
+    let currentAssistantText = '';
+    let currentAssistantElement = null;
+
+    function log(text, type = 'system') {
+      const container = document.getElementById('chatContainer');
+      const div = document.createElement('div');
+      div.className = `message ${type}`;
+      div.textContent = text;
+      container.appendChild(div);
+      container.scrollTop = container.scrollHeight;
+      return div;
+    }
+
+    function logHtml(html, type = 'assistant') {
+      const container = document.getElementById('chatContainer');
+      const div = document.createElement('div');
+      div.className = `message ${type}`;
+      div.innerHTML = html;
+      container.appendChild(div);
+      container.scrollTop = container.scrollHeight;
+      return div;
+    }
+
+    function toggleConnection() {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.close();
+      } else {
+        connect();
+      }
+    }
+
+    function connect() {
+      const url = document.getElementById('wsUrl').value;
+      const statusEl = document.getElementById('status');
+      const connectBtn = document.getElementById('connectBtn');
+      const sendBtn = document.getElementById('sendBtn');
+
+      log('正在连接 ' + url + '...', 'system');
+
+      ws = new WebSocket(url);
+
+      ws.onopen = () => {
+        statusEl.classList.add('connected');
+        connectBtn.textContent = '断开';
+        sendBtn.disabled = false;
+        log('已连接', 'system');
+      };
+
+      ws.onclose = () => {
+        statusEl.classList.remove('connected');
+        connectBtn.textContent = '连接';
+        sendBtn.disabled = true;
+        log('已断开', 'system');
+      };
+
+      ws.onerror = (err) => {
+        log('连接错误', 'system');
+      };
+
+      ws.onmessage = (event) => {
+        const msg = JSON.parse(event.data);
+        handleMessage(msg);
+      };
+    }
+
+    function handleMessage(msg) {
+      if (msg.type === 'error') {
+        log('错误: ' + msg.error, 'system');
+        return;
+      }
+
+      if (msg.type === 'done') {
+        if (currentAssistantElement) {
+          currentAssistantElement = null;
+          currentAssistantText = '';
+        }
+        return;
+      }
+
+      if (msg.type === 'event') {
+        const event = msg.event;
+
+        // 处理消息结束
+        if (event.type === 'message_end' && event.message?.role === 'assistant') {
+          const text = event.message.content?.[0]?.text;
+          if (text && !currentAssistantElement) {
+            // 如果没有流式更新，直接显示完整消息
+            log(text, 'assistant');
+          }
+        }
+
+        // 处理流式文本更新
+        if (event.type === 'message_update' && event.assistantMessageEvent?.type === 'text_delta') {
+          const delta = event.assistantMessageEvent.delta || '';
+          const partial = event.assistantMessageEvent.partial?.content?.[0]?.text || '';
+
+          if (!currentAssistantElement) {
+            currentAssistantElement = log('', 'assistant');
+          }
+
+          if (partial) {
+            currentAssistantElement.textContent = partial;
+          } else if (delta) {
+            currentAssistantText += delta;
+            currentAssistantElement.textContent = currentAssistantText;
+          }
+
+          document.getElementById('chatContainer').scrollTop = document.getElementById('chatContainer').scrollHeight;
+        }
+
+        // 处理工具调用结果
+        if (event.type === 'tool_result') {
+          const toolName = event.message?.toolName || event.toolName || '工具';
+          const content = event.message?.content?.[0]?.text || event.content?.[0]?.text || '';
+          const isError = event.message?.isError || event.isError;
+
+          if (currentAssistantElement) {
+            currentAssistantElement = null;
+            currentAssistantText = '';
+          }
+
+          const toolDiv = document.createElement('div');
+          toolDiv.className = 'message tool';
+          toolDiv.innerHTML = `<strong>${toolName}</strong>: ${content}`;
+          document.getElementById('chatContainer').appendChild(toolDiv);
+          document.getElementById('chatContainer').scrollTop = document.getElementById('chatContainer').scrollHeight;
+        }
+      }
+    }
+
+    function sendMessage() {
+      const input = document.getElementById('messageInput');
+      const text = input.value.trim();
+      if (!text || !ws || ws.readyState !== WebSocket.OPEN) return;
+
+      log(text, 'user');
+      input.value = '';
+
+      const sessionId = document.getElementById('sessionId').value || 'default';
+      ws.send(JSON.stringify({
+        type: 'prompt',
+        content: text,
+        sessionId: sessionId
+      }));
+    }
+
+    function clearChat() {
+      document.getElementById('chatContainer').innerHTML = '';
+    }
+
+    // 键盘事件
+    document.getElementById('messageInput').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendMessage();
+      }
+    });
+
+    // 页面加载后自动连接
+    window.onload = () => {
+      // 自动设置 WebSocket URL
+      const wsUrlInput = document.getElementById('wsUrl');
+      const host = window.location.host;
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      wsUrlInput.value = `${protocol}//${host}/ws`;
+
+      connect();
+    };
+  </script>
+</body>
+</html>
