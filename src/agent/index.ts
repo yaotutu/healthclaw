@@ -1,6 +1,6 @@
 import { Agent } from '@mariozechner/pi-agent-core';
 import { getModel, streamSimple, createAssistantMessageEventStream } from '@mariozechner/pi-ai';
-import type { Context, AssistantMessageEventStream, AssistantMessageEvent } from '@mariozechner/pi-ai';
+import type { Context, AssistantMessageEventStream } from '@mariozechner/pi-ai';
 import type { Storage } from '../storage/index.js';
 import { HEALTH_ADVISOR_PROMPT } from './system-prompt.js';
 import { createRecordTool, createQueryTool } from './tools/index.js';
