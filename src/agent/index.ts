@@ -24,18 +24,23 @@ const createLoggingStreamFn = () => {
 
     // 创建新的 stream 用于日志收集
     const loggedStream = createAssistantMessageEventStream();
-    const responseEvents: AssistantMessageEvent[] = [];
+    let finalMessage: unknown = null;
 
     // 异步处理原始 stream
     (async () => {
       try {
         for await (const event of originalStream) {
-          responseEvents.push(event);
+          // 只记录 done 事件中的最终消息
+          if (event.type === 'done') {
+            finalMessage = event.message;
+          }
           loggedStream.push(event);
         }
         loggedStream.end();
-        // 输出响应报文
-        logger.info({ events: responseEvents }, '[llm] <<< response');
+        // 只输出最终响应消息
+        if (finalMessage) {
+          logger.info({ response: finalMessage }, '[llm] <<< response');
+        }
       } catch (err) {
         loggedStream.end();
         logger.error('[llm] error: %s', (err as Error).message);
