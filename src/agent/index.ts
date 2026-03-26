@@ -16,9 +16,8 @@ export interface CreateAgentOptions {
 const createLoggingStreamFn = () => {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return (model: any, context: Context, options?: any): AssistantMessageEventStream => {
-    // 输出原始请求报文
-    const payload = { model, context, options };
-    logger.info('[llm] >>> request: %j', payload);
+    // 输出格式化的请求报文
+    logger.info('[llm] >>> request:\n%s', JSON.stringify({ model, context, options }, null, 2));
 
     // 调用原始 streamSimple
     const originalStream = streamSimple(model, context, options);
@@ -35,8 +34,8 @@ const createLoggingStreamFn = () => {
           loggedStream.push(event);
         }
         loggedStream.end();
-        // 输出原始响应报文
-        logger.info('[llm] <<< response: %j', responseEvents);
+        // 输出格式化的响应报文
+        logger.info('[llm] <<< response:\n%s', JSON.stringify(responseEvents, null, 2));
       } catch (err) {
         loggedStream.end();
         logger.error('[llm] error: %s', (err as Error).message);
