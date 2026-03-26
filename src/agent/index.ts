@@ -16,20 +16,9 @@ export interface CreateAgentOptions {
 const createLoggingStreamFn = () => {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return (model: any, context: Context, options?: any): AssistantMessageEventStream => {
-    // 记录请求
-    const messagesSummary = context.messages.map(m => ({
-      role: m.role,
-      content: typeof m.content === 'string' ? m.content.slice(0, 200) :
-               Array.isArray(m.content) ? m.content.map(c => c.type) : m.content
-    }));
-
-    logger.info('[llm] === 请求 ===');
-    logger.info('[llm] model: %s', model.model || 'unknown');
-    logger.info('[llm] systemPrompt: %s', context.systemPrompt?.slice(0, 200) + '...');
-    logger.info('[llm] messages: %j', messagesSummary);
-    if (context.tools?.length) {
-      logger.info('[llm] tools: %j', context.tools.map(t => t.name));
-    }
+    // 直接打印原始请求报文
+    logger.info('[llm] ==================== 请求 ====================');
+    logger.info('[llm] payload: %j', { model, context, options });
 
     // 调用原始 streamSimple
     return streamSimple(model, context, options);
