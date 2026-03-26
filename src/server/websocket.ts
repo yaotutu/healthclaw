@@ -29,21 +29,19 @@ const sendMessage = (ws: WebSocket, msg: ServerMessage) => {
 const logAgentEvent = (event: AgentEvent) => {
   switch (event.type) {
     case 'agent_start':
-      logger.debug('[agent] start');
+      logger.info('[llm] === 开始对话 ===');
       break;
     case 'agent_end':
-      logger.debug('[agent] end messages=%d', event.messages.length);
+      logger.info('[llm] === 对话结束 messages=%d ===', event.messages.length);
       break;
     case 'turn_start':
-      logger.debug('[agent] turn_start');
+      logger.debug('[llm] turn_start');
       break;
-    case 'turn_end': {
-      const toolCount = event.toolResults?.length || 0;
-      logger.info('[agent] turn_end role=assistant tools=%d', toolCount);
+    case 'turn_end':
+      logger.debug('[llm] turn_end');
       break;
-    }
     case 'message_start':
-      logger.debug('[agent] message_start role=%s', event.message?.role);
+      logger.debug('[llm] message_start role=%s', event.message?.role);
       break;
     case 'message_update':
       // 流式输出太频繁，不记录
@@ -52,42 +50,53 @@ const logAgentEvent = (event: AgentEvent) => {
       const msg = event.message;
 
       if (msg.role === 'user') {
-        logger.debug('[agent] message_end role=user');
-      } else if (msg.role === 'assistant') {
+        // 显示发送给 LLM 的用户消息
         const content = msg.content;
         let text = '';
-        if (Array.isArray(content)) {
+        if (typeof content === 'string') {
+          text = content;
+        } else if (Array.isArray(content)) {
           const textBlock = content.find(c => c.type === 'text');
           text = (textBlock as { text?: string })?.text || '';
         }
+        logger.info('[llm] >>> 发送: %s', text);
+      } else if (msg.role === 'assistant') {
+        // 显示 LLM 返回的完整内容
+        const content = msg.content;
         const usage = msg.usage;
-        logger.info('[agent] message_end role=assistant text=%s... tokens=%d+%d',
-          text.slice(0, 100),
-          usage?.input || 0,
-          usage?.output || 0
-        );
+
+        if (Array.isArray(content)) {
+          for (const block of content) {
+            if (block.type === 'text') {
+              logger.info('[llm] <<< 回复: %s', (block as { text: string }).text);
+            } else if (block.type === 'toolCall') {
+              const toolBlock = block as { name: string; arguments: Record<string, unknown> };
+              logger.info('[llm] <<< 工具调用: %s %j', toolBlock.name, toolBlock.arguments);
+            }
+          }
+        }
+        logger.info('[llm] <<< tokens: input=%d output=%d', usage?.input || 0, usage?.output || 0);
       }
       break;
     }
     case 'tool_execution_start':
-      logger.info('[tool] execute name=%s args=%j', event.toolName, event.args);
+      logger.info('[tool] >>> 调用: %s %j', event.toolName, event.args);
       break;
-    case 'tool_execution_update': {
-      const partial = JSON.stringify(event.partialResult).slice(0, 100);
-      logger.debug('[tool] update name=%s partial=%s...', event.toolName, partial);
+    case 'tool_execution_update':
+      // 工具执行过程不记录
       break;
-    }
     case 'tool_execution_end': {
+      const result = JSON.stringify(event.result).slice(0, 500);
       if (event.isError) {
-        logger.error('[tool] error name=%s', event.toolName);
+        logger.error('[tool] <<< 错误: %s', result);
       } else {
-        logger.info('[tool] end name=%s', event.toolName);
+        logger.info('[tool] <<< 结果: %s', result);
       }
       break;
     }
     default: {
       const _event: never = event;
-      logger.debug('[agent] unhandled event type=%s', (_event as { type: string }).type);
+      logger.debug('[llm] unhandled event type=%s', (_event as { type: string }).type);
     }
   }
 };
