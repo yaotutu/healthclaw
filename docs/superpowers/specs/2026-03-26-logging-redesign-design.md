@@ -43,67 +43,58 @@ LOG_LEVEL=info bun run start  # 正常运行
 LOG_LEVEL=warn bun run start  # 安静模式
 ```
 
-## 日志覆盖范围
+## 日志规范
 
-### 1. AgentEvent（Agent 事件）
+### 什么操作必须记录日志？
 
-| 事件类型 | 日志级别 | 格式示例 |
-|---------|---------|---------|
-| `agent_start` | debug | `[agent_start]` |
-| `agent_end` | debug | `[agent_end] messages=3` |
-| `turn_start` | debug | `[turn_start]` |
-| `turn_end` | info | `[turn_end] role=assistant, tools=2` |
-| `message_start` | debug | `[message_start] role=user` |
-| `message_update` | debug | `[message_update] delta=...` |
-| `message_end` | info | `[message_end] role=assistant, tokens=150+80` |
-| `tool_execution_start` | info | `[tool] name=record, args={...}` |
-| `tool_execution_update` | debug | `[tool_update] partial=...` |
-| `tool_execution_end` | info | `[tool_end] name=record, error=false` |
+**必须记录（info 级别）**：
+- 服务启动/关闭
+- 外部连接建立/断开（WebSocket、数据库等）
+- 资源创建/销毁（会话、Agent 等）
+- 数据变更（写入、更新、删除）
+- 外部调用（API 请求、工具执行）
+- 错误和异常
 
-### 2. Server（服务器）
+**可选记录（debug 级别）**：
+- 读取操作
+- 内部状态变化
+- 详细的事件流（如 AgentEvent 的 update 类型）
 
-| 操作 | 日志级别 | 格式示例 |
-|-----|---------|---------|
-| 服务器启动 | info | `[server] started on port 3001` |
-| 配置加载 | info | `[server] provider=anthropic, model=claude-sonnet` |
-| 健康检查 | debug | `[server] health check, sessions=2` |
-| 静态文件请求 | debug | `[server] GET /index.html 200` |
-| 404 错误 | warn | `[server] GET /unknown 404` |
+### 日志格式规范
 
-### 3. WebSocket（连接）
+```
+[模块名] 操作描述 key=value key2=value2
+```
 
-| 操作 | 日志级别 | 格式示例 |
-|-----|---------|---------|
-| 客户端连接 | info | `[ws] client connected ip=127.0.0.1` |
-| 客户端断开 | info | `[ws] client disconnected` |
-| 收到消息 | debug | `[ws] received type=prompt sessionId=default` |
-| 发送消息 | debug | `[ws] sent type=event eventType=message_start` |
-| 连接错误 | error | `[ws] error: connection reset` |
+示例：
+```
+[server] started port=3001
+[ws] client connected ip=127.0.0.1
+[storage] record type=血糖 value=120
+[agent] created provider=anthropic model=claude-sonnet
+[tool] name=record args={"type":"血糖"}
+```
 
-### 4. Session（会话）
+### 日志级别选择规则
 
-| 操作 | 日志级别 | 格式示例 |
-|-----|---------|---------|
-| 创建会话 | info | `[session] created id=default` |
-| 获取会话 | debug | `[session] get id=default` |
-| 删除会话 | info | `[session] removed id=default` |
+| 级别 | 使用场景 |
+|-----|---------|
+| debug | 详细调试信息，开发时需要，生产环境通常关闭 |
+| info | 正常业务操作，生产环境保留 |
+| warn | 异常但可恢复的情况 |
+| error | 错误，需要关注和处理 |
 
-### 5. Storage（存储）
+### AgentEvent 日志映射
 
-| 操作 | 日志级别 | 格式示例 |
-|-----|---------|---------|
-| 记录数据 | info | `[storage] record type=血糖 value=120` |
-| 查询数据 | debug | `[storage] query type=血糖 days=7 limit=10` |
-| 读取文件 | debug | `[storage] read records.json count=15` |
-| 写入文件 | debug | `[storage] write records.json count=16` |
-| 存储错误 | error | `[storage] error: permission denied` |
+所有 AgentEvent 都必须记录，按以下规则：
 
-### 6. Agent（代理）
-
-| 操作 | 日志级别 | 格式示例 |
-|-----|---------|---------|
-| 创建 Agent | info | `[agent] created provider=anthropic model=claude-sonnet` |
-| 创建模型失败 | error | `[agent] failed to create model provider=xxx` |
+| 事件类型 | 级别 |
+|---------|-----|
+| `*_start` | debug |
+| `*_end` | info |
+| `*_update` | debug |
+| 工具执行开始/结束 | info |
+| 工具执行更新 | debug |
 
 ## 使用方式
 
@@ -156,9 +147,31 @@ logger.error({ module: 'ws', err }, 'Connection failed');
 10. `src/agent/tools/query.ts` - query 工具日志
 11. `package.json` - 添加 pino 和 pino-pretty 依赖
 
-## 防止未来问题
+## 日志规范（新模块必读）
 
-1. **统一入口**：所有日志必须通过 `logger` 模块，禁止直接使用 `console.log`
-2. **事件全覆盖**：`logAgentEvent` 函数必须处理所有 AgentEvent 类型，新增事件类型时强制更新
-3. **关键操作必记**：新功能的关键操作必须添加日志
-4. **类型安全**：使用 TypeScript 确保 AgentEvent 类型完整性
+任何新模块/功能开发时，必须遵循以下规范：
+
+### 必须记录的操作
+
+1. **生命周期事件**：模块/服务的启动、停止、初始化
+2. **外部交互**：网络请求、数据库操作、文件读写
+3. **状态变更**：会话创建/删除、配置变更
+4. **用户操作**：收到请求、返回响应
+5. **错误和异常**：所有 catch 块、错误处理路径
+
+### 禁止事项
+
+1. 禁止使用 `console.log/info/debug/warn/error`
+2. 禁止在日志中输出敏感信息（密码、token、个人数据）
+
+### ESLint 规则（可选）
+
+可添加 ESLint 规则禁止 `console.*`：
+
+```json
+{
+  "rules": {
+    "no-console": "error"
+  }
+}
+```
