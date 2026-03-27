@@ -124,17 +124,32 @@ export interface ChannelMessage {
 
 **数据库迁移：**
 
-在 `initTables()` 中使用 `ALTER TABLE ADD COLUMN` 为已有表添加新字段：
+在 `initTables()` 中新增 `user_profiles` 建表语句，并使用 `ALTER TABLE ADD COLUMN` 为已有表添加新字段：
 
 ```sql
+-- 新建 user_profiles 表
+CREATE TABLE IF NOT EXISTS user_profiles (
+  user_id TEXT PRIMARY KEY,
+  height REAL,
+  weight REAL,
+  age INTEGER,
+  gender TEXT,
+  diseases TEXT,
+  allergies TEXT,
+  diet_preferences TEXT,
+  health_goal TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
 -- health_records 新增 detail 列
 ALTER TABLE health_records ADD COLUMN detail TEXT;
 
 -- messages 新增 metadata 列
-ALTER TABLE metadata ADD COLUMN metadata TEXT;
+ALTER TABLE messages ADD COLUMN metadata TEXT;
 ```
 
-由于 SQLite `ALTER TABLE ADD COLUMN` 是幂等安全的（列已存在会报错，需要 try-catch 忽略），封装为安全的迁移方法。
+由于 SQLite `ALTER TABLE ADD COLUMN` 在列已存在时会报错，需要 try-catch 忽略该错误，封装为安全的迁移方法。
 
 ### Part 3: 模式分析与智能建议
 
@@ -194,9 +209,10 @@ sql`SUM(CAST(json_extract(detail, '$.calories') AS REAL)) as calories`,
 | `src/store/index.ts` | 导出 `profileStore`，`Store` 类新增 `profile` 属性；`initTables` 增加迁移逻辑 |
 | `src/agent/tools.ts` | 新增 `get_profile`、`update_profile`、`analyze_diet` 工具；`record` 工具支持 `detail` 参数 |
 | `src/agent/prompt.ts` | 增强提示词，引导 AI 做个性化饮食分析和建议 |
-| `src/agent/factory.ts` | 创建 Agent 前查询档案，追加到 systemPrompt；`convertMessages` 支持多模态恢复 |
-| `src/channels/types.ts` | `ChannelMessage` 新增 `images` 字段 |
+| `src/agent/factory.ts` | 创建 Agent 前查询档案，追加到 systemPrompt；`toolList` 扩展包含新工具；`convertMessages` 支持 metadata 中的图片恢复为多模态 UserMessage |
+| `src/channels/types.ts` | `ChannelMessage` 新增 `images` 字段；`ClientMessage` 新增 `images` 字段 |
 | `src/channels/qq.ts` | 从 `event.attachments` 提取图片 URL 放入 `images` |
+| `src/channels/websocket.ts` | 从 `ClientMessage.images` 映射到 `ChannelMessage.images` |
 | `src/channels/handler.ts` | 处理 `images` 字段，构建多模态 UserMessage |
 
 ## 不做什么
