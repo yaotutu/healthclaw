@@ -61,6 +61,10 @@ src/
 
 通过 `pure-qqbot` 库实现，自动回复用户消息（不支持流式，累积后发送）。
 
+### 新增通道规则
+
+- **不支持流式的通道不要定义 `sendStream`**。handler 通过 `!context.sendStream` 判断通道类型：有 `sendStream` 走流式推送，没有则通过 `send()` 发送完整响应。定义了无效的 `sendStream` stub 会导致消息丢失。
+
 ## 数据类型
 
 - `weight` (体重)

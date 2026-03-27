@@ -61,6 +61,9 @@ export const createMessageHandler = (options: CreateMessageHandlerOptions) => {
 
       // 3. 提取响应并保存
       const assistantText = extractAssistantText(events);
+      if (!assistantText && events.length > 0) {
+        logger.warn('[handler] no assistant text extracted events=%d userId=%s', events.length, userId);
+      }
       if (assistantText) {
         await store.messages.appendMessage(userId, {
           role: 'assistant',
