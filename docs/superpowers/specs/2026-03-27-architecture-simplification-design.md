@@ -192,21 +192,40 @@ async function main() {
 
 ```json
 {
-  "drizzle-orm": "^0.x.x",
-  "drizzle-kit": "^0.x.x"
+  "drizzle-orm": "^0.40.0",
+  "drizzle-kit": "^0.30.0"
 }
+```
+
+## 数据迁移
+
+现有数据需要迁移到新的统一 SQLite 数据库：
+
+| 数据源 | 当前位置 | 迁移目标 |
+|--------|----------|----------|
+| 消息历史 | `workspace/sessions.db` | 合并到 `workspace/healthclaw.db` |
+| 健康数据 | `workspace/records.json` | 迁移到 `workspace/healthclaw.db` |
+
+**迁移脚本示例：**
+```typescript
+// scripts/migrate-data.ts
+// 1. 读取 records.json
+// 2. 插入到 health_records 表
+// 3. 从旧 sessions.db 读取消息
+// 4. 插入到新 messages 表
 ```
 
 ## 迁移步骤
 
-1. 安装 Drizzle 依赖
-2. 创建 `store/` 模块，迁移数据到 SQLite
-3. 创建 `agent/` 模块，合并工具
-4. 创建 `session/` 模块
-5. 重构 `channels/` 模块
-6. 重写 `main.ts`
-7. 删除旧目录
-8. 测试验证
+1. 安装 Drizzle 依赖（`drizzle-orm@^0.40.0`, `drizzle-kit@^0.30.0`）
+2. 创建 `store/` 模块（schema, db, health, messages）
+3. 编写并运行数据迁移脚本（`records.json` → SQLite, 合并 `sessions.db`）
+4. 创建 `agent/` 模块，合并工具
+5. 创建 `session/` 模块
+6. 重构 `channels/` 模块
+7. 重写 `main.ts`
+8. 删除旧目录
+9. 测试验证
 
 ## 未来扩展
 
