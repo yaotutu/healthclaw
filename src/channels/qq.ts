@@ -41,12 +41,7 @@ export class QQChannel implements ChannelAdapter {
         send: async (text: string) => {
           await this.client.reply(event, text);
         },
-        sendStream: async (text: string, done: boolean) => {
-          // QQ 不支持流式，累积后发送
-          if (done && text) {
-            await this.client.reply(event, text);
-          }
-        },
+        // QQ 不支持流式，不定义 sendStream，handler 会通过 send() 发送完整响应
       };
 
       await this.messageHandler(channelMsg, context);
