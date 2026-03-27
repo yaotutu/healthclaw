@@ -4,7 +4,7 @@
 
 **Goal:** Fix user isolation, naming consistency, session cleanup, abort, and code quality issues in the architecture.
 
-**Architecture:** Modify store schema and methods for userId-based isolation, add TTL cleanup to session manager, implement WebSocket abort with AbortController, and extract helper functions in websocket.ts.
+**Architecture:** Modify store schema and methods for userId-based isolation, add TTL cleanup to session manager, implement WebSocket abort via `session.agent.abort()`, and extract helper functions in websocket.ts.
 
 **Tech Stack:** TypeScript, Bun, SQLite + Drizzle ORM, pi-agent-core
 
@@ -15,14 +15,17 @@
 | File | Action | Responsibility |
 |------|--------|---------------|
 | `src/store/schema.ts` | Modify | Add `userId` to healthRecords, rename `sessionId` → `userId` in messages |
+| `src/store/index.ts` | Modify | Update initTables SQL to match new schema |
 | `src/store/health.ts` | Modify | Add userId filter to record/query |
 | `src/store/messages.ts` | Modify | Rename sessionId → userId in params |
-| `src/store/index.ts` | Modify | Update initTables SQL to match new schema |
-| `src/session/manager.ts` | Modify | Add TTL cleanup, abort support |
-| `src/channels/types.ts` | Modify | Add 'aborted' to ServerMessage.type |
-| `src/channels/websocket.ts` | Modify | Implement abort, extract helpers, unify userId format |
-| `src/channels/handler.ts` | Modify | Pass userId to tools, handle abort |
 | `src/agent/tools.ts` | Modify | Accept userId in tools |
+| `src/agent/factory.ts` | Modify | Pass userId to createTools |
+| `src/session/manager.ts` | Modify | Add TTL cleanup, userId param, abort via agent.abort() |
+| `src/main.ts` | Modify | Wire createAgent with userId, wire abort handler |
+| `src/channels/types.ts` | Modify | Add 'aborted' to ServerMessage.type |
+| `src/channels/websocket.ts` | Modify | Implement abort via callback, extract helpers, unify userId |
+| `src/channels/handler.ts` | Modify | Fix double-send, handle abort error |
+| `src/channels/qq.ts` | Modify | Unify userId format to `qq:senderId` |
 
 ---
 
@@ -96,7 +99,7 @@ private initTables(): void {
 - [ ] **Step 3: Delete old database and verify typecheck**
 
 Run: `rm -f workspace/healthclaw.db && bun run typecheck`
-Expected: typecheck fails (because health.ts and messages.ts still reference old field names). This is expected — we fix them in the next task.
+Expected: typecheck fails (health.ts and messages.ts still reference old field names). This is expected — fixed in Task 2.
 
 - [ ] **Step 4: Commit**
 
@@ -201,7 +204,7 @@ export type MessageStore = ReturnType<typeof createMessageStore>;
 - [ ] **Step 3: Verify typecheck**
 
 Run: `bun run typecheck`
-Expected: typecheck fails (agent/tools.ts and handler.ts still use old API). This is expected.
+Expected: typecheck fails on tools.ts, handler.ts (still use old API). This is expected.
 
 - [ ] **Step 4: Commit**
 
@@ -212,13 +215,17 @@ git commit -m "refactor(store): add userId filter to health and rename sessionId
 
 ---
 
-### Task 3: Update agent tools and handler
+### Task 3: Update agent tools, factory, session manager, and main.ts
+
+This task combines the userId propagation through the agent/session chain AND the session TTL cleanup to avoid modifying `session/manager.ts` twice.
 
 **Files:**
 - Modify: `src/agent/tools.ts`
-- Modify: `src/channels/handler.ts`
+- Modify: `src/agent/factory.ts`
+- Modify: `src/session/manager.ts`
+- Modify: `src/main.ts`
 
-- [ ] **Step 1: Update tools.ts to accept userId**
+- [ ] **Step 1: Update tools.ts — accept userId**
 
 ```typescript
 import { Type } from '@sinclair/typebox';
@@ -311,9 +318,7 @@ export const createTools = (store: Store, userId: string) => {
 };
 ```
 
-- [ ] **Step 2: Update agent/factory.ts — pass userId to createTools**
-
-Change `createHealthAgent` signature to accept `userId`:
+- [ ] **Step 2: Update factory.ts — accept userId**
 
 ```typescript
 export interface CreateAgentOptions {
@@ -327,56 +332,31 @@ export const createHealthAgent = (options: CreateAgentOptions) => {
 
   const agentModel = getModel(LLM_PROVIDER as any, LLM_MODEL);
   const tools = createTools(store, userId);
-  // ... rest unchanged
-```
+  const toolList = [tools.record, tools.query];
 
-- [ ] **Step 3: Update session/manager.ts — pass userId to createAgent**
+  logger.info('[agent] created provider=%s model=%s tools=%d', LLM_PROVIDER, LLM_MODEL, toolList.length);
 
-Update the `createAgent` type signature and call:
+  const agent = new Agent({
+    initialState: {
+      systemPrompt: HEALTH_ADVISOR_PROMPT,
+      model: agentModel,
+      tools: toolList,
+      messages: convertMessages(messages),
+      thinkingLevel: 'off',
+    },
+    streamFn: createLoggingStreamFn(),
+  });
 
-```typescript
-export interface CreateSessionManagerOptions {
-  createAgent: (userId: string, messages: Message[]) => Agent;
-  store: Store;
-}
-
-// In getOrCreate:
-session = {
-  userId,
-  agent: createAgent(userId, messages),
-  // ...
+  return agent;
 };
 ```
 
-- [ ] **Step 4: Update main.ts — adjust createAgent call**
+- [ ] **Step 3: Rewrite session/manager.ts — userId param + TTL + abort**
 
-```typescript
-const createAgent = (userId: Parameters<typeof createHealthAgent>[0]['userId'], messages: Parameters<typeof createHealthAgent>[0]['messages']) =>
-  createHealthAgent({ store, userId, messages });
-```
-
-- [ ] **Step 5: Verify typecheck**
-
-Run: `bun run typecheck`
-Expected: typecheck passes (or fails only on remaining handler.ts issues)
-
-- [ ] **Step 6: Commit**
-
-```bash
-git add src/agent/tools.ts src/agent/factory.ts src/session/manager.ts src/main.ts
-git commit -m "feat: pass userId through agent tools for data isolation"
-```
-
----
-
-### Task 4: Add session TTL cleanup
-
-**Files:**
-- Modify: `src/session/manager.ts`
-
-- [ ] **Step 1: Add TTL cleanup logic**
-
-Full updated file:
+Full file rewrite. Key changes:
+- `createAgent` now takes `(userId, messages)`
+- `SessionManager.abort(userId)` calls `session.agent.abort()` to cancel the actual LLM call
+- TTL cleanup with 7-day expiry, 1-hour scan interval
 
 ```typescript
 import type { Agent } from '@mariozechner/pi-agent-core';
@@ -386,7 +366,6 @@ import { logger } from '../infrastructure/logger';
 export interface Session {
   userId: string;
   agent: Agent;
-  abortController?: AbortController;
   createdAt: Date;
   lastActiveAt: Date;
 }
@@ -460,8 +439,8 @@ export const createSessionManager = (options: CreateSessionManagerOptions): Sess
 
   const abort = (userId: string): boolean => {
     const session = sessions.get(userId);
-    if (!session?.abortController) return false;
-    session.abortController.abort();
+    if (!session) return false;
+    session.agent.abort();
     logger.info('[session] aborted userId=%s', userId);
     return true;
   };
@@ -491,26 +470,41 @@ export const createSessionManager = (options: CreateSessionManagerOptions): Sess
 };
 ```
 
-- [ ] **Step 2: Verify typecheck**
+- [ ] **Step 4: Update main.ts**
+
+```typescript
+// Change the createAgent call to pass userId
+const createAgent = (userId: string, messages: Parameters<typeof createHealthAgent>[0]['messages']) =>
+  createHealthAgent({ store, userId, messages });
+```
+
+- [ ] **Step 5: Verify typecheck**
 
 Run: `bun run typecheck`
-Expected: passes
+Expected: may fail on handler.ts (abort references). This is OK — fixed in Task 4.
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add src/session/manager.ts
-git commit -m "feat(session): add 7-day TTL cleanup and abort support"
+git add src/agent/tools.ts src/agent/factory.ts src/session/manager.ts src/main.ts
+git commit -m "feat: pass userId through agent chain and add session TTL cleanup"
 ```
 
 ---
 
-### Task 5: Implement WebSocket abort and code optimization
+### Task 4: Implement channels — abort, code optimization, userId format
 
 **Files:**
 - Modify: `src/channels/types.ts`
 - Modify: `src/channels/websocket.ts`
 - Modify: `src/channels/handler.ts`
+- Modify: `src/channels/qq.ts`
+
+**Abort mechanism design:**
+- WebSocket receives abort → looks up userId from connectionId → calls `onAbort(userId)` callback
+- `main.ts` wires `wsChannel.onAbort((userId) => sessions.abort(userId))`
+- `SessionManager.abort()` calls `session.agent.abort()` which cancels the actual LLM call
+- `agent.prompt()` rejects after abort → handler catches the error, doesn't save response
 
 - [ ] **Step 1: Update types.ts — add 'aborted' to ServerMessage**
 
@@ -522,7 +516,13 @@ export interface ServerMessage {
 }
 ```
 
-- [ ] **Step 2: Rewrite websocket.ts — abort + helper extraction + userId format**
+- [ ] **Step 2: Rewrite websocket.ts**
+
+Key changes:
+- Extract helper functions for verbose event construction
+- Unify userId format: `websocket:${sessionId || 'default'}`
+- Add `onAbort` callback for abort support
+- Track connectionId → userId mapping for abort routing
 
 ```typescript
 import http from 'http';
@@ -539,6 +539,8 @@ export interface WebSocketChannelOptions {
   server: http.Server;
   path?: string;
 }
+
+export type AbortHandler = (userId: string) => void;
 
 const createEmptyUsage = () => ({
   input: 0,
@@ -581,7 +583,7 @@ export class WebSocketChannel implements ChannelAdapter {
   private wss: WebSocketServer;
   private connections = new Map<string, Connection>();
   private messageHandler?: MessageHandler;
-  private activeRequests = new Map<string, AbortController>();
+  private abortHandler?: AbortHandler;
 
   constructor(options: WebSocketChannelOptions) {
     const { server, path = '/ws' } = options;
@@ -603,7 +605,6 @@ export class WebSocketChannel implements ChannelAdapter {
       ws.on('close', () => {
         logger.info('[ws] client disconnected connectionId=%s', connectionId);
         this.connections.delete(connectionId);
-        this.activeRequests.delete(connectionId);
       });
 
       ws.on('error', (err: Error) => {
@@ -624,6 +625,10 @@ export class WebSocketChannel implements ChannelAdapter {
     this.messageHandler = handler;
   }
 
+  onAbort(handler: AbortHandler): void {
+    this.abortHandler = handler;
+  }
+
   private async handleMessage(ws: WebSocket, data: Buffer, connectionId: string): Promise<void> {
     if (!this.messageHandler) {
       throw new Error('Message handler not set');
@@ -638,14 +643,12 @@ export class WebSocketChannel implements ChannelAdapter {
       return;
     }
 
-    // Handle abort
     if (clientMsg.type === 'abort') {
-      const abortController = this.activeRequests.get(connectionId);
-      if (abortController) {
-        abortController.abort();
-        this.activeRequests.delete(connectionId);
+      const conn = this.connections.get(connectionId);
+      if (conn && this.abortHandler) {
+        this.abortHandler(conn.userId);
         this.sendToWs(ws, { type: 'aborted' });
-        logger.info('[ws] aborted connectionId=%s', connectionId);
+        logger.info('[ws] aborted connectionId=%s userId=%s', connectionId, conn.userId);
       }
       return;
     }
@@ -676,16 +679,7 @@ export class WebSocketChannel implements ChannelAdapter {
       },
     };
 
-    // Track active request for abort support
-    const abortController = new AbortController();
-    this.activeRequests.set(connectionId, abortController);
-    channelMsg.metadata = { ...channelMsg.metadata, abortController };
-
-    try {
-      await this.messageHandler(channelMsg, context);
-    } finally {
-      this.activeRequests.delete(connectionId);
-    }
+    await this.messageHandler(channelMsg, context);
   }
 
   private sendToWs(ws: WebSocket, msg: ServerMessage): void {
@@ -700,7 +694,11 @@ export const createWebSocketChannel = (options: WebSocketChannelOptions): WebSoc
 };
 ```
 
-- [ ] **Step 3: Update handler.ts — abort support + pass abort signal**
+- [ ] **Step 3: Rewrite handler.ts — fix double-send + abort error handling**
+
+Key changes:
+- **Double-send fix**: only call `context.send()` for channels WITHOUT `sendStream`. Streaming channels already deliver content via events.
+- **Abort handling**: when `agent.prompt()` is rejected due to abort, catch the error and don't save the response.
 
 ```typescript
 import type { AgentEvent } from '@mariozechner/pi-agent-core';
@@ -736,20 +734,13 @@ export const createMessageHandler = (options: CreateMessageHandlerOptions) => {
 
   return async (message: ChannelMessage, context: ChannelContext): Promise<void> => {
     const { userId, content } = message;
-    const abortController = message.metadata?.abortController as AbortController | undefined;
     logger.info('[handler] processing userId=%s channel=%s', userId, message.channel);
 
     const session = await sessions.getOrCreate(userId);
-    session.abortController = abortController;
-
     const events: AgentEvent[] = [];
 
     const unsubscribe = session.agent.subscribe((event) => {
       events.push(event);
-
-      // Check if aborted
-      if (abortController?.signal.aborted) return;
-
       if (event.type === 'message_update') {
         const msg = event.message;
         if (msg?.role === 'assistant' && typeof msg.content === 'string') {
@@ -771,13 +762,7 @@ export const createMessageHandler = (options: CreateMessageHandlerOptions) => {
       // 2. Call Agent
       await session.agent.prompt(content);
 
-      // 3. If aborted, don't save response
-      if (abortController?.signal.aborted) {
-        logger.info('[handler] aborted, skipping response save userId=%s', userId);
-        return;
-      }
-
-      // 4. Extract and save response
+      // 3. Extract and save response
       const assistantText = extractAssistantText(events);
       if (assistantText) {
         await store.messages.appendMessage(userId, {
@@ -785,64 +770,68 @@ export const createMessageHandler = (options: CreateMessageHandlerOptions) => {
           content: assistantText,
           timestamp: Date.now(),
         });
-        await context.send(assistantText);
+        // Only call send() for non-streaming channels
+        // Streaming channels already delivered content via events
+        if (!context.sendStream) {
+          await context.send(assistantText);
+        }
       }
     } catch (err) {
-      if (abortController?.signal.aborted) {
-        logger.info('[handler] aborted during processing userId=%s', userId);
+      const message = (err as Error).message;
+      // Agent.abort() causes prompt() to reject — treat as intentional, not an error
+      if (message?.includes('aborted')) {
+        logger.info('[handler] request aborted userId=%s', userId);
         return;
       }
-      logger.error('[handler] error=%s', (err as Error).message);
-      await context.send(`处理出错: ${(err as Error).message}`);
+      logger.error('[handler] error=%s', message);
+      await context.send(`处理出错: ${message}`);
     } finally {
       unsubscribe();
-      session.abortController = undefined;
     }
   };
 };
 ```
 
-- [ ] **Step 4: Update QQ channel userId format**
+- [ ] **Step 4: Update qq.ts — unify userId format**
 
-In `src/channels/qq.ts`, change userId to `qq:${event.senderId}`:
+Change userId from `event.senderId` to `qq:${event.senderId}`:
 
+In `src/channels/qq.ts`, update the `channelMsg` userId:
 ```typescript
-const channelMsg: ChannelMessage = {
-  id: event.messageId,
-  userId: `qq:${event.senderId}`,
-  content: event.content || '',
-  channel: 'qq',
-  timestamp: new Date(),
-  metadata: {
-    type: event.type,
-    guildId: (event as any).guildId,
-    channelId: (event as any).channelId,
-    attachments: event.attachments,
-  },
-};
+userId: `qq:${event.senderId}`,
 ```
 
-- [ ] **Step 5: Verify typecheck**
+- [ ] **Step 5: Update main.ts — wire abort handler**
+
+After `wsChannel.onMessage(handleMessage)`, add:
+```typescript
+wsChannel.onAbort((userId) => sessions.abort(userId));
+```
+
+- [ ] **Step 6: Export WebSocketChannelOptions and onAbort from channels/index.ts**
+
+No change needed — `WebSocketChannel` is already exported, and `onAbort` is a method on it.
+
+- [ ] **Step 7: Verify typecheck**
 
 Run: `bun run typecheck`
 Expected: passes
 
-- [ ] **Step 6: Verify server starts**
+- [ ] **Step 8: Verify server starts**
 
-Run: `bun run server &` then `kill %1` after it starts.
+Run: `bun run server` (Ctrl+C after startup)
+Expected: `[app] server started port=3001`
 
-Expected: Server starts without errors, logs `[app] server started port=3001`
-
-- [ ] **Step 7: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
-git add src/channels/types.ts src/channels/websocket.ts src/channels/handler.ts src/channels/qq.ts
-git commit -m "feat(channels): implement WebSocket abort, extract helpers, unify userId format"
+git add src/channels/types.ts src/channels/websocket.ts src/channels/handler.ts src/channels/qq.ts src/main.ts
+git commit -m "feat(channels): implement abort, fix double-send, extract helpers, unify userId"
 ```
 
 ---
 
-### Task 6: Final verification and cleanup
+### Task 5: Final verification
 
 **Files:**
 - Verify all changes work together
@@ -855,7 +844,7 @@ Expected: passes with no errors
 - [ ] **Step 2: Start server and verify**
 
 Run: `bun run server`
-Expected: Server starts, logs show `[app] server started port=3001`
+Expected: Server starts, logs `[app] server started port=3001`
 
 - [ ] **Step 3: Final commit if any cleanup needed**
 
