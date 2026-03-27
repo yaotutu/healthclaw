@@ -14,6 +14,7 @@ export interface SessionManager {
   get(userId: string): Session | undefined;
   remove(userId: string): boolean;
   list(): string[];
+  close(): void;
 }
 
 export interface CreateSessionManagerOptions {
@@ -72,5 +73,13 @@ export const createSessionManager = (options: CreateSessionManagerOptions): Sess
     return Array.from(sessions.keys());
   };
 
-  return { getOrCreate, get, remove, list };
+  const close = (): void => {
+    const count = sessions.size;
+    sessions.clear();
+    if (count > 0) {
+      logger.info('[session] closed cleared=%d sessions', count);
+    }
+  };
+
+  return { getOrCreate, get, remove, list, close };
 };

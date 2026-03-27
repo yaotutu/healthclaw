@@ -51,9 +51,20 @@ async function main() {
     }, SHUTDOWN_TIMEOUT);
 
     try {
+      // 1. 停止接收新连接
       await wsChannel.stop();
-      server.close();
+
+      // 2. 关闭 HTTP 服务器 (promisified)
+      await new Promise<void>((resolve) => {
+        server.close(() => resolve());
+      });
+
+      // 3. 清理会话
+      sessions.close();
+
+      // 4. 关闭存储
       store.close();
+
       clearTimeout(timeout);
       logger.info('[app] shutdown complete');
       process.exit(0);
