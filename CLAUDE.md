@@ -61,9 +61,13 @@ src/
 
 通过 `pure-qqbot` 库实现，自动回复用户消息（不支持流式，累积后发送）。
 
-### 新增通道规则
+### 通道能力声明
 
-- **不支持流式的通道不要定义 `sendStream`**。handler 通过 `!context.sendStream` 判断通道类型：有 `sendStream` 走流式推送，没有则通过 `send()` 发送完整响应。定义了无效的 `sendStream` stub 会导致消息丢失。
+通道通过 `ChannelContext.capabilities` 声明自身能力，handler 根据能力决定行为：
+
+- **默认（不声明 capabilities）**: 非流式通道，handler 通过 `send()` 发送完整响应
+- **`capabilities: { streaming: true }`**: 流式通道，handler 通过 `sendStream()` 推送增量内容
+- handler 始终通过 `context.capabilities?.streaming` 判断，**不依赖 `sendStream` 函数是否存在**
 
 ## 数据类型
 
@@ -125,3 +129,7 @@ logger.error('[app] fatal error=%s', err.message);
 - `messages` 表：会话消息历史
 
 通过 Drizzle ORM 提供类型安全的数据库操作。
+
+
+# 重要规则，用户手动填写，禁止修改
+- 添加详细的中文注释，解释每个函数和重要代码块的作用

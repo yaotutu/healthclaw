@@ -48,23 +48,30 @@ export interface ChannelStreamChunk {
 }
 
 /**
+ * 通道能力声明。
+ * 所有字段默认 false，非流式通道无需声明任何能力。
+ */
+export interface ChannelCapabilities {
+  /** 支持流式输出（如 WebSocket） */
+  streaming?: boolean;
+}
+
+/**
  * 通道上下文：定义通道如何发送响应。
  *
- * 契约：
- * - send() 必须定义，用于发送完整响应
- * - sendStream() 仅在通道支持流式输出时定义（如 WebSocket）
- * - 不支持流式的通道（如 QQ）不应定义 sendStream，
- *   handler 会通过 send() 发送完整响应
- *
- * handler 判断逻辑：
- * - sendStream 存在 → 流式推送增量内容，最终发 done 信号
- * - sendStream 不存在 → 等待完整响应后调用 send()
+ * 能力驱动：
+ * - send() 必须实现，发送完整响应（默认路径，所有通道都支持）
+ * - sendStream() 仅在 capabilities.streaming=true 时由通道实现
+ * - handler 通过 capabilities.streaming 判断是否走流式路径
+ * - 不声明 capabilities 的通道自动走 send() 路径
  */
 export interface ChannelContext {
   /** 发送完整文本响应（所有通道必须实现） */
   send(text: string): Promise<void>;
-  /** 流式发送文本增量（仅流式通道实现，如 WebSocket） */
+  /** 流式发送文本增量（仅 capabilities.streaming=true 的通道实现） */
   sendStream?(text: string, done: boolean): Promise<void>;
+  /** 通道能力声明 */
+  capabilities?: ChannelCapabilities;
 }
 
 export type MessageHandler = (

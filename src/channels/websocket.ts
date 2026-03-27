@@ -139,6 +139,7 @@ export class WebSocketChannel implements ChannelAdapter {
     };
 
     const context: ChannelContext = {
+      capabilities: { streaming: true },
       send: async (text: string) => {
         this.sendToWs(ws, { type: 'event', event: createMessageEndEvent(text) });
         this.sendToWs(ws, { type: 'done' });

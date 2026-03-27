@@ -38,13 +38,15 @@ export const createMessageHandler = (options: CreateMessageHandlerOptions) => {
 
     const unsubscribe = session.agent.subscribe((event) => {
       events.push(event);
-      if (event.type === 'message_update') {
-        const msg = event.message;
-        if (msg?.role === 'assistant' && typeof msg.content === 'string') {
-          context.sendStream?.(msg.content, false);
+      if (context.capabilities?.streaming) {
+        if (event.type === 'message_update') {
+          const msg = event.message;
+          if (msg?.role === 'assistant' && typeof msg.content === 'string') {
+            context.sendStream?.(msg.content, false);
+          }
+        } else if (event.type === 'message_end') {
+          context.sendStream?.('', true);
         }
-      } else if (event.type === 'message_end') {
-        context.sendStream?.('', true);
       }
     });
 
@@ -72,7 +74,7 @@ export const createMessageHandler = (options: CreateMessageHandlerOptions) => {
         });
         // Streaming channels already delivered content via events
         // Only call send() for non-streaming channels (like QQ)
-        if (!context.sendStream) {
+        if (!context.capabilities?.streaming) {
           await context.send(assistantText);
         }
       }
