@@ -3,7 +3,8 @@ import http from 'http';
 import { Store } from './store';
 import { createHealthAgent } from './agent';
 import { createSessionManager } from './session';
-import { createMessageHandler, createWebSocketChannel } from './channels';
+import { createMessageHandler, createWebSocketChannel, createQQChannel } from './channels';
+import type { ChannelAdapter } from './channels';
 import { logger } from './infrastructure/logger';
 
 const PORT = parseInt(process.env.PORT || '3001', 10);
@@ -27,21 +28,41 @@ async function main() {
   // 4. 消息处理器
   const handleMessage = createMessageHandler({ sessions, store });
 
-  // 5. 创建 HTTP 服务器
+  // 5. 收集所有通道（用于关闭）
+  const channels: ChannelAdapter[] = [];
+
+  // 6. 创建 HTTP 服务器
   const server = http.createServer();
 
-  // 6. 启动 WebSocket 通道
+  // 7. 启动 WebSocket 通道
   const wsChannel = createWebSocketChannel({ server, path: '/ws' });
   wsChannel.onMessage(handleMessage);
   await wsChannel.start();
+  channels.push(wsChannel);
 
-  // 7. 监听端口
+  // 8. 启动 QQ Bot 通道（可选）
+  if (process.env.QQBOT_APP_ID && process.env.QQBOT_APP_SECRET) {
+    try {
+      const qqChannel = createQQChannel({
+        appId: process.env.QQBOT_APP_ID,
+        clientSecret: process.env.QQBOT_CLIENT_SECRET || process.env.QQBOT_APP_SECRET,
+      });
+      qqChannel.onMessage(handleMessage);
+      await qqChannel.start();
+      channels.push(qqChannel);
+      logger.info('[app] qq bot started');
+    } catch (err) {
+      logger.error('[app] qq bot failed to start: %s', (err as Error).message);
+    }
+  }
+
+  // 9. 监听端口
   server.listen(PORT, () => {
     logger.info('[app] server started port=%d', PORT);
     logger.info('[app] websocket ws://localhost:%d/ws', PORT);
   });
 
-  // 8. 优雅关闭
+  // 10. 优雅关闭
   const shutdown = async (signal: string) => {
     logger.info('[app] received %s, shutting down...', signal);
 
@@ -51,8 +72,10 @@ async function main() {
     }, SHUTDOWN_TIMEOUT);
 
     try {
-      // 1. 停止接收新连接
-      await wsChannel.stop();
+      // 1. 停止所有通道
+      for (const channel of channels) {
+        await channel.stop();
+      }
 
       // 2. 关闭 HTTP 服务器 (promisified)
       await new Promise<void>((resolve) => {
