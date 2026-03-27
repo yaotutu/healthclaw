@@ -3,6 +3,7 @@ import type { Db } from './db';
 import { healthRecords, type HealthRecord, type NewHealthRecord } from './schema';
 
 export interface QueryOptions {
+  userId: string;
   type?: 'weight' | 'sleep' | 'diet' | 'exercise' | 'water';
   days?: number;
   limit?: number;
@@ -17,7 +18,7 @@ export const createHealthStore = (db: Db) => {
   };
 
   const query = async (options: QueryOptions): Promise<HealthRecord[]> => {
-    const conditions = [];
+    const conditions = [eq(healthRecords.userId, options.userId)];
 
     if (options.type) {
       conditions.push(eq(healthRecords.type, options.type));
@@ -28,20 +29,13 @@ export const createHealthStore = (db: Db) => {
       conditions.push(gte(healthRecords.timestamp, cutoff));
     }
 
-    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
-
-    if (options.limit) {
-      return db.select()
-        .from(healthRecords)
-        .where(whereClause)
-        .orderBy(desc(healthRecords.timestamp))
-        .limit(options.limit);
-    }
+    const limit = options.limit ?? 10;
 
     return db.select()
       .from(healthRecords)
-      .where(whereClause)
-      .orderBy(desc(healthRecords.timestamp));
+      .where(and(...conditions))
+      .orderBy(desc(healthRecords.timestamp))
+      .limit(limit);
   };
 
   return { record, query };
