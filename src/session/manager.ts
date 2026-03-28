@@ -22,7 +22,7 @@ const DEFAULT_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 const DEFAULT_CLEANUP_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 
 export interface CreateSessionManagerOptions {
-  createAgent: (userId: string, messages: Message[]) => Agent;
+  createAgent: (userId: string, messages: Message[]) => Promise<Agent>;
   store: Store;
   ttlMs?: number;
   cleanupIntervalMs?: number;
@@ -62,7 +62,8 @@ export const createSessionManager = (options: CreateSessionManagerOptions): Sess
 
     session = {
       userId,
-      agent: createAgent(userId, messages),
+      // await 等待异步 Agent 创建完成（需要查询用户档案）
+      agent: await createAgent(userId, messages),
       createdAt: new Date(),
       lastActiveAt: new Date(),
     };

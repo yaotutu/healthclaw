@@ -18,8 +18,8 @@ async function main() {
   const store = new Store(DB_PATH);
   logger.info('[app] database initialized path=%s', DB_PATH);
 
-  // 2. 创建 Agent 工厂
-  const createAgent = (userId: string, messages: Parameters<typeof createHealthAgent>[0]['messages']) =>
+  // 2. 创建 Agent 工厂（异步函数，因为需要查询用户档案）
+  const createAgent = async (userId: string, messages: Parameters<typeof createHealthAgent>[0]['messages']) =>
     createHealthAgent({ store, userId, messages });
 
   // 3. 会话管理
