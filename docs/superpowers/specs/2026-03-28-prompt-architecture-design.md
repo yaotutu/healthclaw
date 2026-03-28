@@ -64,7 +64,9 @@ prompts/
 | 严重程度 | `severity` (1-5) | `severity` (1-10) | 更精细的刻度 |
 | 诱因 | `trigger` | 删除 | 由大模型分析，不硬编码 |
 | 身体部位 | 无 | `bodyPart` | 新增 |
-| 解决时间 | 无 | `resolvedAt` | 新增，但大模型通过提示词规则判断，不依赖代码逻辑 |
+| 解决时间 | 无 | `resolvedAt` (integer, 可为null) | 新增。大模型通过提示词规则（>1天无新记录=可能已好）判断，可用 resolve_symptom 工具标记 |
+
+**注意：旧数据库文件将被删除重建，不需要迁移旧数据。以下所有表变更同理。**
 
 ### exercise_records（运动表）变更
 
@@ -105,7 +107,9 @@ export const memories = sqliteTable('memories', {
   content: text('content').notNull(),     // 记忆内容
   category: text('category'),             // 分类：feedback/preference/fact
   createdAt: integer('created_at').notNull(),
-});
+}, (table) => [
+  index('memories_user_id_idx').on(table.userId),
+]);
 ```
 
 **记忆管理：**
@@ -125,7 +129,9 @@ export const conversationSummaries = sqliteTable('conversation_summaries', {
   startTimestamp: integer('start_timestamp').notNull(),
   endTimestamp: integer('end_timestamp').notNull(),
   createdAt: integer('created_at').notNull(),
-});
+}, (table) => [
+  index('summaries_user_id_idx').on(table.userId),
+]);
 ```
 
 **摘要管理：**
@@ -180,6 +186,20 @@ session.agent 处理消息（使用新的 systemPrompt）
   - 不需要重启服务
   - 因为 assembler 在组装时会重新 `readFileSync` 所有 prompt 文件
 
+## Store 模块更新
+
+Schema 变更后，以下 store 模块需要对应更新：
+
+| 模块 | 变更 |
+|------|------|
+| `src/store/symptom.ts` | `symptom` → `description`，新增 `bodyPart`、`resolvedAt`，删除 `trigger`，`resolve()` 方法适配新字段 |
+| `src/store/exercise.ts` | `exerciseType` → `type`，`caloriesBurned` → `calories`，删除 `intensity`，新增心率/距离字段 |
+| `src/store/sleep.ts` | `duration` 从小时改为分钟，新增 `deepSleep` |
+| `src/store/diet.ts` | 新增 `sodium` 字段 |
+| `src/store/water.ts` | 删除 `unit` 字段，统一 ml |
+| 新增 `src/store/memory.ts` | memories 表的 CRUD |
+| 新增 `src/store/summary.ts` | conversation_summaries 表的 CRUD |
+
 ## 工具设计
 
 ### 记录工具（调整参数以匹配新 schema）
@@ -203,6 +223,17 @@ session.agent 处理消息（使用新的 systemPrompt）
 - `query_water_records` - 查询饮水记录
 
 参数统一为：`startTime`（可选）、`endTime`（可选）、`limit`（可选，默认 10）
+
+**返回格式：** 返回原始数据库记录数组，不做任何加工或聚合。所有分析由大模型完成。返回示例：
+```json
+{
+  "records": [
+    { "id": 1, "weight": 70.5, "bodyFat": 22.1, "timestamp": 1710000000 },
+    { "id": 2, "weight": 69.8, "bodyFat": 21.5, "timestamp": 1710086400 }
+  ],
+  "count": 2
+}
+```
 
 ### 新增症状解决工具
 
