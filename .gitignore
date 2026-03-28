@@ -4,3 +4,4 @@ dist/
 workspace/
 *.log
 .worktrees/
+.claude/worktrees/

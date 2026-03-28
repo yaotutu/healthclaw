@@ -12,7 +12,7 @@ const LLM_MODEL = process.env.LLM_MODEL || 'claude-sonnet-4-6';
 /**
  * 将存储层消息转换为 Agent 框架所需的消息格式
  * 支持多模态内容：当用户消息包含 metadata 中的图片信息时，
- * 将纯文本内容转换为包含文本和图片的内容数组
+ * 将图片以占位符形式展示（因为只存储了元信息，不含 base64 数据）
  * @param messages 存储层消息列表
  * @returns 转换后的消息列表，供 Agent 框架使用
  */
@@ -22,16 +22,18 @@ const convertMessages = (messages: Message[]): Array<UserMessage | AssistantMess
     if (m.role === 'user') {
       // 默认使用纯文本内容
       let content: string | Array<{ type: 'text'; text: string } | { type: 'image'; data: string; mimeType: string }> = m.content;
-      // 尝试解析 metadata 中的图片信息，支持多模态消息
+      // 尝试解析 metadata 中的图片信息
       if (m.metadata) {
         try {
           const meta = JSON.parse(m.metadata);
-          // 如果 metadata 中包含图片数组，将文本和图片组合为多模态内容
+          // 如果 metadata 中包含图片数组，添加图片占位符
           if (meta.images && Array.isArray(meta.images) && meta.images.length > 0) {
-            content = [
-              { type: 'text', text: m.content },
-              ...meta.images,
-            ];
+            // 只存储了元信息（format, size等），不再包含 base64 data
+            // 在 LLM 上下文中以占位符表示
+            const imagePlaceholders = meta.images.map((img: { format?: string; mimeType?: string }) =>
+              `[图片: ${img.format || img.mimeType || '未知格式'}]`
+            ).join(' ');
+            content = `${m.content} ${imagePlaceholders}`;
           }
         } catch {
           // metadata 解析失败，使用纯文本
@@ -106,8 +108,17 @@ export const createHealthAgent = async (options: CreateAgentOptions) => {
 
   const agentModel = getModel(LLM_PROVIDER as any, LLM_MODEL);
   const tools = createTools(store, userId);
-  // 工具列表：包含记录、查询、档案管理和饮食分析工具
-  const toolList = [tools.record, tools.query, tools.getProfile, tools.updateProfile, tools.analyzeDiet];
+  // 工具列表：包含所有记录工具（身体、饮食、症状、运动、睡眠、饮水）和档案工具
+  const toolList = [
+    tools.recordBody,
+    tools.recordDiet,
+    tools.recordSymptom,
+    tools.recordExercise,
+    tools.recordSleep,
+    tools.recordWater,
+    tools.getProfile,
+    tools.updateProfile,
+  ];
 
   // 查询用户档案，注入到系统提示词中实现个性化
   let systemPrompt = HEALTH_ADVISOR_PROMPT;

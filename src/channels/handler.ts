@@ -58,13 +58,20 @@ export const createMessageHandler = (options: CreateMessageHandlerOptions) => {
         mimeType: img.mimeType,
       }));
 
-      // 1. 保存用户消息到数据库（图片信息存入 metadata 字段）
+      // 提取图片元信息（仅存储元数据，不存储 base64 数据）
+      const imageMetadata = message.images?.map(img => ({
+        format: img.mimeType?.split('/')[1] || 'unknown',
+        mimeType: img.mimeType,
+        // 可以添加其他元信息如 size，但不包含 data
+      }));
+
+      // 1. 保存用户消息到数据库（图片元信息存入 metadata 字段，不含 base64 数据）
       await store.messages.appendMessage(userId, {
         role: 'user',
         content,
         timestamp: Date.now(),
         // 条件展开，避免传 undefined 给 Drizzle ORM
-        ...(images ? { metadata: JSON.stringify({ images }) } : {}),
+        ...(imageMetadata ? { metadata: JSON.stringify({ images: imageMetadata }) } : {}),
       });
 
       // 2. 调用 Agent，如有图片则传入
