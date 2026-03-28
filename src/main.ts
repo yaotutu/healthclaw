@@ -5,6 +5,7 @@ import { createHealthAgent } from './agent';
 import { createSessionManager } from './session';
 import { createMessageHandler, createWebSocketChannel, createQQChannel } from './channels';
 import type { ChannelAdapter } from './channels';
+import { startHeartbeatScheduler } from './heartbeat';
 import { logger } from './infrastructure/logger';
 
 const PORT = parseInt(process.env.PORT || '3001', 10);
@@ -63,7 +64,22 @@ async function main() {
     logger.info('[app] websocket ws://localhost:%d/ws', PORT);
   });
 
-  // 10. 优雅关闭
+  // 10. 初始化心跳调度器，每15分钟检查一次用户健康数据
+  const heartbeat = startHeartbeatScheduler({
+    store,
+    intervalMs: 15 * 60 * 1000,
+    sendMessage: async (userId, message) => {
+      // 将关怀消息存入消息历史
+      await store.messages.appendMessage(userId, {
+        role: 'assistant',
+        content: message,
+        timestamp: Date.now(),
+      });
+      logger.info('[heartbeat] message stored userId=%s', userId);
+    },
+  });
+
+  // 11. 优雅关闭
   const shutdown = async (signal: string) => {
     logger.info('[app] received %s, shutting down...', signal);
 
@@ -73,6 +89,9 @@ async function main() {
     }, SHUTDOWN_TIMEOUT);
 
     try {
+      // 0. 停止心跳调度器
+      heartbeat.stop();
+
       // 1. 停止所有通道
       for (const channel of channels) {
         await channel.stop();
