@@ -8,7 +8,9 @@ import {
   exerciseRecords,
   sleepRecords,
   waterRecords,
-  messages
+  messages,
+  memories,
+  conversationSummaries
 } from './schema';
 
 /**
@@ -26,6 +28,8 @@ export interface CreateDbResult {
     sleepRecords: typeof sleepRecords;
     waterRecords: typeof waterRecords;
     messages: typeof messages;
+    memories: typeof memories;
+    conversationSummaries: typeof conversationSummaries;
   }>>;
   sqlite: Database;
 }
@@ -47,7 +51,9 @@ export const createDb = (dbPath: string): CreateDbResult => {
       exerciseRecords,
       sleepRecords,
       waterRecords,
-      messages
+      messages,
+      memories,
+      conversationSummaries
     }
   });
   return { db, sqlite };
