@@ -1,6 +1,7 @@
 import { eq, desc, and } from 'drizzle-orm';
 import type { Db } from './db';
 import { memories, type MemoryRecord, type NewMemoryRecord } from './schema';
+import { logger } from '../infrastructure/logger';
 
 /**
  * 记忆记录数据接口
@@ -46,6 +47,7 @@ export const createMemoryStore = (db: Db) => {
     };
 
     const result = await db.insert(memories).values(recordData).returning();
+    logger.info('[store:memory] saved userId=%s category=%s content=%s', userId, result[0].category, result[0].content.substring(0, 50));
     return result[0];
   };
 
@@ -98,6 +100,7 @@ export const createMemoryStore = (db: Db) => {
       .where(and(eq(memories.id, memoryId), eq(memories.userId, userId)))
       .returning();
 
+    logger.info('[store:memory] removed userId=%s memoryId=%d', userId, memoryId);
     return result.length > 0;
   };
 

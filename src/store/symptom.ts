@@ -1,6 +1,7 @@
 import { eq, desc, and, gte, lte } from 'drizzle-orm';
 import type { Db } from './db';
 import { symptomRecords, type SymptomRecord, type NewSymptomRecord } from './schema';
+import { logger } from '../infrastructure/logger';
 
 /**
  * 查询选项接口
@@ -55,6 +56,7 @@ export const createSymptomStore = (db: Db) => {
     };
 
     const result = await db.insert(symptomRecords).values(recordData).returning();
+    logger.info('[store:symptom] recorded userId=%s description=%s severity=%s bodyPart=%s', userId, result[0].description, result[0].severity, result[0].bodyPart);
     return result[0];
   };
 
@@ -99,6 +101,7 @@ export const createSymptomStore = (db: Db) => {
       .set({ resolvedAt: now })
       .where(and(eq(symptomRecords.id, symptomId), eq(symptomRecords.userId, userId)))
       .returning();
+    logger.info('[store:symptom] resolved userId=%s symptomId=%d', userId, symptomId);
     return result[0];
   };
 

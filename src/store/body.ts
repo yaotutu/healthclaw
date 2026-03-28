@@ -1,6 +1,7 @@
 import { eq, desc, and, gte, lte } from 'drizzle-orm';
 import type { Db } from './db';
 import { bodyRecords, type BodyRecord, type NewBodyRecord } from './schema';
+import { logger } from '../infrastructure/logger';
 
 /**
  * 查询选项接口
@@ -47,6 +48,7 @@ export const createBodyStore = (db: Db) => {
     };
 
     const result = await db.insert(bodyRecords).values(recordData).returning();
+    logger.info('[store:body] recorded userId=%s weight=%s bodyFat=%s', userId, result[0].weight, result[0].bodyFat);
     return result[0];
   };
 

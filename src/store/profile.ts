@@ -1,6 +1,7 @@
 import { eq } from 'drizzle-orm';
 import type { Db } from './db';
 import { userProfiles, type UserProfile, type NewUserProfile } from './schema';
+import { logger } from '../infrastructure/logger';
 
 /**
  * 创建用户档案存储模块
@@ -37,20 +38,22 @@ export const createProfileStore = (db: Db) => {
     const existing = await get(userId);
     const now = Date.now();
 
+    let result: UserProfile;
     if (existing) {
       // 档案已存在，执行更新操作
-      const result = await db.update(userProfiles)
+      result = (await db.update(userProfiles)
         .set({ ...data, updatedAt: now })
         .where(eq(userProfiles.userId, userId))
-        .returning();
-      return result[0];
+        .returning())[0];
+    } else {
+      // 档案不存在，创建新档案
+      result = (await db.insert(userProfiles)
+        .values({ userId, ...data, createdAt: now, updatedAt: now })
+        .returning())[0];
     }
 
-    // 档案不存在，创建新档案
-    const result = await db.insert(userProfiles)
-      .values({ userId, ...data, createdAt: now, updatedAt: now })
-      .returning();
-    return result[0];
+    logger.info('[store:profile] upserted userId=%s', userId);
+    return result;
   };
 
   return { get, upsert };

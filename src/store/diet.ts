@@ -1,6 +1,7 @@
 import { eq, desc, and, gte, lte } from 'drizzle-orm';
 import type { Db } from './db';
 import { dietRecords, type DietRecord, type NewDietRecord } from './schema';
+import { logger } from '../infrastructure/logger';
 
 /**
  * 查询选项接口
@@ -55,6 +56,7 @@ export const createDietStore = (db: Db) => {
     };
 
     const result = await db.insert(dietRecords).values(recordData).returning();
+    logger.info('[store:diet] recorded userId=%s food=%s calories=%s mealType=%s', userId, result[0].food, result[0].calories, result[0].mealType);
     return result[0];
   };
 

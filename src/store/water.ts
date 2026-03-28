@@ -1,6 +1,7 @@
 import { eq, desc, and, gte, lte } from 'drizzle-orm';
 import type { Db } from './db';
 import { waterRecords, type WaterRecord, type NewWaterRecord } from './schema';
+import { logger } from '../infrastructure/logger';
 
 /**
  * 查询选项接口
@@ -43,6 +44,7 @@ export const createWaterStore = (db: Db) => {
     };
 
     const result = await db.insert(waterRecords).values(recordData).returning();
+    logger.info('[store:water] recorded userId=%s amount=%s', userId, result[0].amount);
     return result[0];
   };
 

@@ -1,6 +1,7 @@
 import { eq, desc, and, gte, lte } from 'drizzle-orm';
 import type { Db } from './db';
 import { sleepRecords, type SleepRecord, type NewSleepRecord } from './schema';
+import { logger } from '../infrastructure/logger';
 
 /**
  * 查询选项接口
@@ -51,6 +52,7 @@ export const createSleepStore = (db: Db) => {
     };
 
     const result = await db.insert(sleepRecords).values(recordData).returning();
+    logger.info('[store:sleep] recorded userId=%s duration=%s quality=%s', userId, result[0].duration, result[0].quality);
     return result[0];
   };
 

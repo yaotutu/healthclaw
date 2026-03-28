@@ -1,6 +1,7 @@
 import { eq, desc, and, gte, lte } from 'drizzle-orm';
 import type { Db } from './db';
 import { exerciseRecords, type ExerciseRecord, type NewExerciseRecord } from './schema';
+import { logger } from '../infrastructure/logger';
 
 /**
  * 查询选项接口
@@ -53,6 +54,7 @@ export const createExerciseStore = (db: Db) => {
     };
 
     const result = await db.insert(exerciseRecords).values(recordData).returning();
+    logger.info('[store:exercise] recorded userId=%s type=%s duration=%s calories=%s', userId, result[0].type, result[0].duration, result[0].calories);
     return result[0];
   };
 
