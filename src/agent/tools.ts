@@ -73,6 +73,56 @@ const RecordWaterParamsSchema = Type.Object({
   note: Type.Optional(Type.String({ description: '备注' })),
 });
 
+// ==================== 查询工具参数 Schema ====================
+
+/**
+ * 通用查询参数 Schema
+ * 所有查询工具共享相同的参数结构，支持按时间范围筛选和限制返回数量
+ */
+const QueryRecordsParamsSchema = Type.Object({
+  startTime: Type.Optional(Type.Number({ description: '起始时间戳（毫秒）' })),
+  endTime: Type.Optional(Type.Number({ description: '结束时间戳（毫秒）' })),
+  limit: Type.Optional(Type.Number({ description: '返回数量限制，默认10' })),
+});
+
+// ==================== 解决症状工具参数 Schema ====================
+
+/**
+ * 标记症状已解决的参数 Schema
+ * 需要提供症状记录的 ID
+ */
+const ResolveSymptomParamsSchema = Type.Object({
+  symptomId: Type.Number({ description: '症状记录ID' }),
+});
+
+// ==================== 记忆工具参数 Schema ====================
+
+/**
+ * 保存记忆的参数 Schema
+ * 用于将用户偏好、反馈或重要事实存储为长期记忆
+ */
+const SaveMemoryParamsSchema = Type.Object({
+  content: Type.String({ description: '记忆内容，如用户偏好、反馈或重要事实' }),
+  category: Type.Optional(Type.String({ description: '分类：feedback(反馈)/preference(偏好)/fact(事实)' })),
+});
+
+/**
+ * 查询记忆的参数 Schema
+ * 支持按分类过滤和限制返回数量
+ */
+const QueryMemoriesParamsSchema = Type.Object({
+  category: Type.Optional(Type.String({ description: '按分类过滤' })),
+  limit: Type.Optional(Type.Number({ description: '返回数量限制，默认20' })),
+});
+
+/**
+ * 删除记忆的参数 Schema
+ * 需要提供要删除的记忆 ID
+ */
+const DeleteMemoryParamsSchema = Type.Object({
+  memoryId: Type.Number({ description: '记忆ID' }),
+});
+
 // ==================== 档案工具参数 Schema ====================
 
 /**
@@ -103,6 +153,11 @@ type RecordSymptomParams = typeof RecordSymptomParamsSchema;
 type RecordExerciseParams = typeof RecordExerciseParamsSchema;
 type RecordSleepParams = typeof RecordSleepParamsSchema;
 type RecordWaterParams = typeof RecordWaterParamsSchema;
+type QueryRecordsParams = typeof QueryRecordsParamsSchema;
+type ResolveSymptomParams = typeof ResolveSymptomParamsSchema;
+type SaveMemoryParams = typeof SaveMemoryParamsSchema;
+type QueryMemoriesParams = typeof QueryMemoriesParamsSchema;
+type DeleteMemoryParams = typeof DeleteMemoryParamsSchema;
 type GetProfileParams = typeof GetProfileParamsSchema;
 type UpdateProfileParams = typeof UpdateProfileParamsSchema;
 
@@ -338,6 +393,225 @@ export const createTools = (store: Store, userId: string) => {
     },
   };
 
+  // ==================== 查询工具 ====================
+
+  /**
+   * 查询身体数据记录工具
+   * 按时间范围查询用户的体重、体脂率、BMI 等身体数据历史
+   */
+  const queryBodyRecords: AgentTool<QueryRecordsParams> = {
+    name: 'query_body_records',
+    label: '查询身体数据',
+    description: '查询用户的身体数据记录（体重、体脂率、BMI等），支持按时间范围筛选。',
+    parameters: QueryRecordsParamsSchema,
+    execute: async (_toolCallId, params, _signal) => {
+      const records = await store.body.query(userId, {
+        startDate: params.startTime,
+        endDate: params.endTime,
+        limit: params.limit,
+      });
+      return {
+        content: [{ type: 'text', text: JSON.stringify({ records, count: records.length }) }],
+        details: { records, count: records.length },
+      };
+    },
+  };
+
+  /**
+   * 查询饮食记录工具
+   * 按时间范围查询用户的饮食摄入历史
+   */
+  const queryDietRecords: AgentTool<QueryRecordsParams> = {
+    name: 'query_diet_records',
+    label: '查询饮食记录',
+    description: '查询用户的饮食记录，支持按时间范围筛选。',
+    parameters: QueryRecordsParamsSchema,
+    execute: async (_toolCallId, params, _signal) => {
+      const records = await store.diet.query(userId, {
+        startDate: params.startTime,
+        endDate: params.endTime,
+        limit: params.limit,
+      });
+      return {
+        content: [{ type: 'text', text: JSON.stringify({ records, count: records.length }) }],
+        details: { records, count: records.length },
+      };
+    },
+  };
+
+  /**
+   * 查询症状记录工具
+   * 按时间范围查询用户的症状/不适记录历史
+   */
+  const querySymptomRecords: AgentTool<QueryRecordsParams> = {
+    name: 'query_symptom_records',
+    label: '查询症状记录',
+    description: '查询用户的症状/不适记录，支持按时间范围筛选。',
+    parameters: QueryRecordsParamsSchema,
+    execute: async (_toolCallId, params, _signal) => {
+      const records = await store.symptom.query(userId, {
+        startDate: params.startTime,
+        endDate: params.endTime,
+        limit: params.limit,
+      });
+      return {
+        content: [{ type: 'text', text: JSON.stringify({ records, count: records.length }) }],
+        details: { records, count: records.length },
+      };
+    },
+  };
+
+  /**
+   * 查询运动记录工具
+   * 按时间范围查询用户的运动活动历史
+   */
+  const queryExerciseRecords: AgentTool<QueryRecordsParams> = {
+    name: 'query_exercise_records',
+    label: '查询运动记录',
+    description: '查询用户的运动记录，支持按时间范围筛选。',
+    parameters: QueryRecordsParamsSchema,
+    execute: async (_toolCallId, params, _signal) => {
+      const records = await store.exercise.query(userId, {
+        startDate: params.startTime,
+        endDate: params.endTime,
+        limit: params.limit,
+      });
+      return {
+        content: [{ type: 'text', text: JSON.stringify({ records, count: records.length }) }],
+        details: { records, count: records.length },
+      };
+    },
+  };
+
+  /**
+   * 查询睡眠记录工具
+   * 按时间范围查询用户的睡眠数据历史
+   */
+  const querySleepRecords: AgentTool<QueryRecordsParams> = {
+    name: 'query_sleep_records',
+    label: '查询睡眠记录',
+    description: '查询用户的睡眠记录，支持按时间范围筛选。',
+    parameters: QueryRecordsParamsSchema,
+    execute: async (_toolCallId, params, _signal) => {
+      const records = await store.sleep.query(userId, {
+        startDate: params.startTime,
+        endDate: params.endTime,
+        limit: params.limit,
+      });
+      return {
+        content: [{ type: 'text', text: JSON.stringify({ records, count: records.length }) }],
+        details: { records, count: records.length },
+      };
+    },
+  };
+
+  /**
+   * 查询饮水记录工具
+   * 按时间范围查询用户的饮水量历史
+   */
+  const queryWaterRecords: AgentTool<QueryRecordsParams> = {
+    name: 'query_water_records',
+    label: '查询饮水记录',
+    description: '查询用户的饮水记录，支持按时间范围筛选。',
+    parameters: QueryRecordsParamsSchema,
+    execute: async (_toolCallId, params, _signal) => {
+      const records = await store.water.query(userId, {
+        startDate: params.startTime,
+        endDate: params.endTime,
+        limit: params.limit,
+      });
+      return {
+        content: [{ type: 'text', text: JSON.stringify({ records, count: records.length }) }],
+        details: { records, count: records.length },
+      };
+    },
+  };
+
+  // ==================== 症状解决工具 ====================
+
+  /**
+   * 标记症状已解决工具
+   * 将指定症状记录的 resolved_at 字段更新为当前时间
+   */
+  const resolveSymptom: AgentTool<ResolveSymptomParams> = {
+    name: 'resolve_symptom',
+    label: '标记症状已解决',
+    description: '将指定症状标记为已解决。',
+    parameters: ResolveSymptomParamsSchema,
+    execute: async (_toolCallId, params, _signal) => {
+      const record = await store.symptom.resolve(userId, params.symptomId);
+      return {
+        content: [{ type: 'text', text: `已标记症状为已解决: ${record.description}` }],
+        details: { record },
+      };
+    },
+  };
+
+  // ==================== 记忆工具 ====================
+
+  /**
+   * 保存记忆工具
+   * 将 Agent 从对话中提取的关键信息（如用户偏好、反馈、健康事实）存储为长期记忆
+   * 这些记忆会在后续对话中被使用，实现跨会话的个性化服务
+   */
+  const saveMemory: AgentTool<SaveMemoryParams> = {
+    name: 'save_memory',
+    label: '保存记忆',
+    description: '保存一条关于用户的长期记忆，如偏好、反馈或重要事实。',
+    parameters: SaveMemoryParamsSchema,
+    execute: async (_toolCallId, params, _signal) => {
+      const record = await store.memory.save(userId, {
+        content: params.content,
+        category: params.category,
+      });
+      return {
+        content: [{ type: 'text', text: `已保存记忆: ${record.content}` }],
+        details: { id: record.id, record },
+      };
+    },
+  };
+
+  /**
+   * 查询记忆工具
+   * 查询已保存的用户记忆，支持按分类过滤
+   * 用于在对话中回忆用户的偏好、反馈或健康事实
+   */
+  const queryMemories: AgentTool<QueryMemoriesParams> = {
+    name: 'query_memories',
+    label: '查询记忆',
+    description: '查询已保存的关于用户的记忆，可按分类过滤。',
+    parameters: QueryMemoriesParamsSchema,
+    execute: async (_toolCallId, params, _signal) => {
+      const records = await store.memory.query(userId, {
+        category: params.category,
+        limit: params.limit,
+      });
+      return {
+        content: [{ type: 'text', text: JSON.stringify({ records, count: records.length }) }],
+        details: { records, count: records.length },
+      };
+    },
+  };
+
+  /**
+   * 删除记忆工具
+   * 根据记忆 ID 删除指定的长期记忆记录
+   * 用于清理过时或错误的记忆信息
+   */
+  const deleteMemory: AgentTool<DeleteMemoryParams> = {
+    name: 'delete_memory',
+    label: '删除记忆',
+    description: '删除指定的一条长期记忆。',
+    parameters: DeleteMemoryParamsSchema,
+    execute: async (_toolCallId, params, _signal) => {
+      const success = await store.memory.remove(userId, params.memoryId);
+      return {
+        content: [{ type: 'text', text: success ? `已删除记忆 ID: ${params.memoryId}` : `未找到记忆 ID: ${params.memoryId}` }],
+        details: { success },
+      };
+    },
+  };
+
   return {
     recordBody,
     recordDiet,
@@ -347,5 +621,15 @@ export const createTools = (store: Store, userId: string) => {
     recordWater,
     getProfile,
     updateProfile,
+    queryBodyRecords,
+    queryDietRecords,
+    querySymptomRecords,
+    queryExerciseRecords,
+    querySleepRecords,
+    queryWaterRecords,
+    resolveSymptom,
+    saveMemory,
+    queryMemories,
+    deleteMemory,
   };
 };
