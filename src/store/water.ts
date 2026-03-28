@@ -56,25 +56,21 @@ export const createWaterStore = (db: Db) => {
   const query = async (userId: string, options: QueryOptions = {}): Promise<WaterRecord[]> => {
     const { startDate, endDate, limit } = options;
 
-    let queryBuilder = db
+    // 构建过滤条件，将用户ID与时间范围条件合并
+    const conditions = [eq(waterRecords.userId, userId)];
+    if (startDate !== undefined) {
+      conditions.push(gte(waterRecords.timestamp, startDate));
+    }
+    if (endDate !== undefined) {
+      conditions.push(lte(waterRecords.timestamp, endDate));
+    }
+
+    return db
       .select()
       .from(waterRecords)
-      .where(eq(waterRecords.userId, userId))
-      .orderBy(desc(waterRecords.timestamp));
-
-    if (startDate !== undefined) {
-      queryBuilder = queryBuilder.where(gte(waterRecords.timestamp, startDate));
-    }
-
-    if (endDate !== undefined) {
-      queryBuilder = queryBuilder.where(lte(waterRecords.timestamp, endDate));
-    }
-
-    if (limit !== undefined) {
-      queryBuilder = queryBuilder.limit(limit);
-    }
-
-    return queryBuilder;
+      .where(and(...conditions))
+      .orderBy(desc(waterRecords.timestamp))
+      .limit(limit ?? 100);
   };
 
   return { record, query };

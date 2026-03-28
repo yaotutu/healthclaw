@@ -66,25 +66,21 @@ export const createExerciseStore = (db: Db) => {
   const query = async (userId: string, options: QueryOptions = {}): Promise<ExerciseRecord[]> => {
     const { startDate, endDate, limit } = options;
 
-    let queryBuilder = db
+    // 构建过滤条件，将用户ID与时间范围条件合并
+    const conditions = [eq(exerciseRecords.userId, userId)];
+    if (startDate !== undefined) {
+      conditions.push(gte(exerciseRecords.timestamp, startDate));
+    }
+    if (endDate !== undefined) {
+      conditions.push(lte(exerciseRecords.timestamp, endDate));
+    }
+
+    return db
       .select()
       .from(exerciseRecords)
-      .where(eq(exerciseRecords.userId, userId))
-      .orderBy(desc(exerciseRecords.timestamp));
-
-    if (startDate !== undefined) {
-      queryBuilder = queryBuilder.where(gte(exerciseRecords.timestamp, startDate));
-    }
-
-    if (endDate !== undefined) {
-      queryBuilder = queryBuilder.where(lte(exerciseRecords.timestamp, endDate));
-    }
-
-    if (limit !== undefined) {
-      queryBuilder = queryBuilder.limit(limit);
-    }
-
-    return queryBuilder;
+      .where(and(...conditions))
+      .orderBy(desc(exerciseRecords.timestamp))
+      .limit(limit ?? 100);
   };
 
   return { record, query };

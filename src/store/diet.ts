@@ -68,25 +68,21 @@ export const createDietStore = (db: Db) => {
   const query = async (userId: string, options: QueryOptions = {}): Promise<DietRecord[]> => {
     const { startDate, endDate, limit } = options;
 
-    let queryBuilder = db
+    // 构建过滤条件，将用户ID与时间范围条件合并
+    const conditions = [eq(dietRecords.userId, userId)];
+    if (startDate !== undefined) {
+      conditions.push(gte(dietRecords.timestamp, startDate));
+    }
+    if (endDate !== undefined) {
+      conditions.push(lte(dietRecords.timestamp, endDate));
+    }
+
+    return db
       .select()
       .from(dietRecords)
-      .where(eq(dietRecords.userId, userId))
-      .orderBy(desc(dietRecords.timestamp));
-
-    if (startDate !== undefined) {
-      queryBuilder = queryBuilder.where(gte(dietRecords.timestamp, startDate));
-    }
-
-    if (endDate !== undefined) {
-      queryBuilder = queryBuilder.where(lte(dietRecords.timestamp, endDate));
-    }
-
-    if (limit !== undefined) {
-      queryBuilder = queryBuilder.limit(limit);
-    }
-
-    return queryBuilder;
+      .where(and(...conditions))
+      .orderBy(desc(dietRecords.timestamp))
+      .limit(limit ?? 100);
   };
 
   return { record, query };

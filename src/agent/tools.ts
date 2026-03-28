@@ -297,8 +297,9 @@ export const createTools = (store: Store, userId: string) => {
         note: params.note,
       });
 
-      const hours = Math.floor(record.duration / 60);
-      const mins = record.duration % 60;
+      const duration = record.duration ?? 0;
+      const hours = Math.floor(duration / 60);
+      const mins = duration % 60;
       return {
         content: [{ type: 'text', text: `已记录睡眠: ${hours}小时${mins}分钟${record.quality ? ` (质量 ${record.quality}/5)` : ''}` }],
         details: { id: record.id, record },

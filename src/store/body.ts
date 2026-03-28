@@ -60,25 +60,21 @@ export const createBodyStore = (db: Db) => {
   const query = async (userId: string, options: QueryOptions = {}): Promise<BodyRecord[]> => {
     const { startDate, endDate, limit } = options;
 
-    let query = db
+    // 构建过滤条件，将用户ID与时间范围条件合并
+    const conditions = [eq(bodyRecords.userId, userId)];
+    if (startDate !== undefined) {
+      conditions.push(gte(bodyRecords.timestamp, startDate));
+    }
+    if (endDate !== undefined) {
+      conditions.push(lte(bodyRecords.timestamp, endDate));
+    }
+
+    return db
       .select()
       .from(bodyRecords)
-      .where(eq(bodyRecords.userId, userId))
-      .orderBy(desc(bodyRecords.timestamp));
-
-    if (startDate !== undefined) {
-      query = query.where(gte(bodyRecords.timestamp, startDate));
-    }
-
-    if (endDate !== undefined) {
-      query = query.where(lte(bodyRecords.timestamp, endDate));
-    }
-
-    if (limit !== undefined) {
-      query = query.limit(limit);
-    }
-
-    return query;
+      .where(and(...conditions))
+      .orderBy(desc(bodyRecords.timestamp))
+      .limit(limit ?? 100);
   };
 
   /**

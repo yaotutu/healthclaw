@@ -64,25 +64,21 @@ export const createSleepStore = (db: Db) => {
   const query = async (userId: string, options: QueryOptions = {}): Promise<SleepRecord[]> => {
     const { startDate, endDate, limit } = options;
 
-    let queryBuilder = db
+    // 构建过滤条件，将用户ID与时间范围条件合并
+    const conditions = [eq(sleepRecords.userId, userId)];
+    if (startDate !== undefined) {
+      conditions.push(gte(sleepRecords.timestamp, startDate));
+    }
+    if (endDate !== undefined) {
+      conditions.push(lte(sleepRecords.timestamp, endDate));
+    }
+
+    return db
       .select()
       .from(sleepRecords)
-      .where(eq(sleepRecords.userId, userId))
-      .orderBy(desc(sleepRecords.timestamp));
-
-    if (startDate !== undefined) {
-      queryBuilder = queryBuilder.where(gte(sleepRecords.timestamp, startDate));
-    }
-
-    if (endDate !== undefined) {
-      queryBuilder = queryBuilder.where(lte(sleepRecords.timestamp, endDate));
-    }
-
-    if (limit !== undefined) {
-      queryBuilder = queryBuilder.limit(limit);
-    }
-
-    return queryBuilder;
+      .where(and(...conditions))
+      .orderBy(desc(sleepRecords.timestamp))
+      .limit(limit ?? 100);
   };
 
   return { record, query };
