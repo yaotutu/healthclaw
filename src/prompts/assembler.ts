@@ -1,7 +1,7 @@
 import { readFileSync, readdirSync } from 'fs';
 import { join } from 'path';
 import type { Store } from '../store';
-import type { UserProfile, MemoryRecord, ConversationSummary } from '../store/schema';
+import type { UserProfile, MemoryRecord, ConversationSummary, ChronicCondition } from '../store/schema';
 
 /**
  * prompts 目录的根路径
@@ -68,13 +68,15 @@ function formatDate(timestamp: number): string {
  */
 async function formatRecentRecords(store: Store, userId: string): Promise<string> {
   // 并行查询各类型记录，每种取最近 5 条
-  const [body, diet, symptom, exercise, sleep, water] = await Promise.all([
+  const [body, diet, symptom, exercise, sleep, water, medication, observations] = await Promise.all([
     store.body.query(userId, { limit: 5 }).catch(() => []),
     store.diet.query(userId, { limit: 5 }).catch(() => []),
     store.symptom.query(userId, { limit: 5 }).catch(() => []),
     store.exercise.query(userId, { limit: 5 }).catch(() => []),
     store.sleep.query(userId, { limit: 5 }).catch(() => []),
     store.water.query(userId, { limit: 5 }).catch(() => []),
+    store.medication.query(userId, { activeOnly: true, limit: 10 }).catch(() => []),
+    store.observation.query(userId, { limit: 5 }).catch(() => []),
   ]);
 
   const sections: string[] = [];
@@ -123,6 +125,21 @@ async function formatRecentRecords(store: Store, userId: string): Promise<string
     ).join('\n'));
   }
 
+  // 格式化正在服用的药物
+  if (medication.length > 0) {
+    sections.push('### 正在服用的药物\n' + medication.map(r =>
+      `- ${r.medication}${r.dosage ? ' ' + r.dosage : ''}${r.frequency ? ' (' + r.frequency + ')' : ''}`
+    ).join('\n'));
+  }
+
+  // 格式化最近的健康观察
+  if (observations.length > 0) {
+    sections.push('### 健康观察\n' + observations.map(r => {
+      const tags = r.tags ? JSON.parse(r.tags) as string[] : [];
+      return `- ${formatDate(r.timestamp)}: ${r.content}${tags.length > 0 ? ' [' + tags.join(', ') + ']' : ''}`;
+    }).join('\n'));
+  }
+
   // 所有类型都无记录时返回空字符串
   if (sections.length === 0) return '';
   return '## 最近记录\n\n' + sections.join('\n\n');
@@ -148,6 +165,21 @@ async function formatActiveConcerns(store: Store, userId: string): Promise<strin
     const daysSince = Math.round(hoursSince / 24);
     return `- [${s.description}]${s.severity ? ' 严重程度 ' + s.severity + '/10' : ''}${s.bodyPart ? ' (' + s.bodyPart + ')' : ''} - ${daysSince > 0 ? daysSince + '天前' : hoursSince + '小时前'}`;
   }).join('\n') + '\n\n注意：如果一个症状超过1天没有新的记录或提及，可以认为该症状可能已经好转，可友好询问确认。';
+}
+
+/**
+ * 格式化慢性病信息为可注入文本
+ * 展示用户当前活跃的慢性病，包括严重程度、季节模式和触发因素
+ * @param conditions 慢性病记录数组
+ * @returns 格式化后的慢性病文本，无记录时返回空字符串
+ */
+function formatChronicConditions(conditions: ChronicCondition[]): string {
+  if (!conditions || conditions.length === 0) return '';
+  return '## 慢性病追踪\n以下是用户正在追踪的慢性病，记录症状时请关注是否关联：\n' +
+    conditions.map(c => {
+      const triggers = c.triggers ? JSON.parse(c.triggers) as string[] : [];
+      return `- ${c.condition}${c.severity ? ' (' + c.severity + ')' : ''}${c.seasonalPattern ? ' - ' + c.seasonalPattern : ''}${triggers.length > 0 ? ' - 触发因素: ' + triggers.join('、') : ''}`;
+    }).join('\n');
 }
 
 /**
@@ -217,6 +249,11 @@ export async function assembleSystemPrompt(store: Store, userId: string): Promis
   // 获取活跃症状（未解决的）
   const activeConcernsText = await formatActiveConcerns(store, userId);
   if (activeConcernsText) parts.push(activeConcernsText);
+
+  // 获取活跃的慢性病信息
+  const chronicConditions = await store.chronic.query(userId, { activeOnly: true }).catch(() => []);
+  const chronicText = formatChronicConditions(chronicConditions);
+  if (chronicText) parts.push(chronicText);
 
   // 获取长期记忆
   const memoriesList = await store.memory.getAll(userId).catch(() => []);

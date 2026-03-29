@@ -129,7 +129,7 @@ export const createHealthAgent = async (options: CreateAgentOptions) => {
 
   const agentModel = getModel(LLM_PROVIDER as any, LLM_MODEL);
   const tools = createTools(store, userId);
-  // 工具列表：包含所有记录、查询、档案、症状解决和记忆工具（共 18 个）
+  // 工具列表：包含所有记录、查询、档案、症状解决、记忆和用药工具
   const toolList = [
     // 记录工具：各类健康数据的录入
     tools.recordBody,
@@ -138,6 +138,21 @@ export const createHealthAgent = async (options: CreateAgentOptions) => {
     tools.recordExercise,
     tools.recordSleep,
     tools.recordWater,
+    // 用药工具：记录用药、查询用药历史、标记停药
+    tools.recordMedication,
+    tools.queryMedicationRecords,
+    tools.stopMedication,
+    // 慢性病工具：记录、更新、查询、停用慢性病追踪
+    tools.recordChronicCondition,
+    tools.updateChronicCondition,
+    tools.queryChronicConditions,
+    tools.deactivateChronicCondition,
+    // 分析工具：食物-症状关联分析、健康模式分析
+    tools.queryFoodSymptomCorrelation,
+    tools.queryHealthPatterns,
+    // 健康观察工具：记录和查询非结构化健康观察
+    tools.recordObservation,
+    tools.queryObservations,
     // 档案工具：获取和更新用户个人健康档案
     tools.getProfile,
     tools.updateProfile,

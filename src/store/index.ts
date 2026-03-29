@@ -10,6 +10,10 @@ import { createWaterStore, type WaterStore } from './water';
 import { createMemoryStore, type MemoryStore } from './memory';
 import { createSummaryStore, type SummaryStore } from './summary';
 import { createLogStore, type LogStore } from './logs';
+import { createMedicationStore, type MedicationStore } from './medication';
+import { createChronicStore, type ChronicStore } from './chronic';
+import { createAnalysisStore, type AnalysisStore } from './analysis';
+import { createObservationStore, type ObservationStore } from './observation';
 import {
   userProfiles,
   bodyRecords,
@@ -21,10 +25,16 @@ import {
   messages,
   memories,
   conversationSummaries,
+  medicationRecords,
+  chronicConditions,
+  healthObservations,
   type Message,
   type UserProfile,
   type MemoryRecord,
   type ConversationSummary,
+  type MedicationRecord,
+  type ChronicCondition,
+  type HealthObservation,
 } from './schema';
 import type { Database } from 'bun:sqlite';
 
@@ -42,6 +52,10 @@ export {
   createMemoryStore,
   createSummaryStore,
   createLogStore,
+  createMedicationStore,
+  createChronicStore,
+  createAnalysisStore,
+  createObservationStore,
 };
 
 // 导出所有 schema 表
@@ -55,7 +69,10 @@ export {
   waterRecords,
   messages,
   memories,
-  conversationSummaries
+  conversationSummaries,
+  medicationRecords,
+  chronicConditions,
+  healthObservations,
 };
 
 // 导出所有类型
@@ -72,10 +89,17 @@ export type {
   MemoryStore,
   SummaryStore,
   LogStore,
+  MedicationStore,
+  ChronicStore,
+  AnalysisStore,
+  ObservationStore,
   Message,
   UserProfile,
   MemoryRecord,
   ConversationSummary,
+  MedicationRecord,
+  ChronicCondition,
+  HealthObservation,
 };
 
 // 统一的 Store 类，管理所有存储模块和数据库初始化
@@ -101,6 +125,18 @@ export class Store {
   // 日志存储（写入数据库，不输出到控制台）
   readonly logs: LogStore;
 
+  // 用药记录存储
+  readonly medication: MedicationStore;
+
+  // 慢性病记录存储
+  readonly chronic: ChronicStore;
+
+  // 分析模块（依赖其他存储模块）
+  readonly analysis: AnalysisStore;
+
+  // 健康观察记录存储
+  readonly observation: ObservationStore;
+
   constructor(dbPath: string) {
     const { db, sqlite } = createDb(dbPath);
     this.db = db;
@@ -122,6 +158,18 @@ export class Store {
 
     // 日志存储必须在 initTables() 之后创建，因为 prepare 需要 logs 表已存在
     this.logs = createLogStore(this.sqlite);
+
+    // 用药记录存储
+    this.medication = createMedicationStore(this.db);
+
+    // 慢性病记录存储
+    this.chronic = createChronicStore(this.db);
+
+    // 分析模块（在所有模块初始化后创建，因为依赖其他存储模块）
+    this.analysis = createAnalysisStore(this);
+
+    // 健康观察记录存储
+    this.observation = createObservationStore(this.db);
   }
 
   /**
@@ -272,6 +320,37 @@ export class Store {
       )
     `);
 
+    // 创建用药记录表
+    this.sqlite.run(`
+      CREATE TABLE IF NOT EXISTS medication_records (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id TEXT NOT NULL,
+        medication TEXT NOT NULL,
+        dosage TEXT,
+        frequency TEXT,
+        start_date INTEGER,
+        end_date INTEGER,
+        note TEXT,
+        timestamp INTEGER NOT NULL
+      )
+    `);
+
+    // 创建慢性病记录表
+    this.sqlite.run(`
+      CREATE TABLE IF NOT EXISTS chronic_conditions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id TEXT NOT NULL,
+        condition TEXT NOT NULL,
+        severity TEXT,
+        seasonal_pattern TEXT,
+        triggers TEXT,
+        notes TEXT,
+        is_active INTEGER NOT NULL DEFAULT 1,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    `);
+
     // 创建索引以提高查询性能
     this.sqlite.run(`CREATE INDEX IF NOT EXISTS idx_messages_user_id ON messages(user_id)`);
     this.sqlite.run(`CREATE INDEX IF NOT EXISTS idx_body_user_id ON body_records(user_id)`);
@@ -282,6 +361,20 @@ export class Store {
     this.sqlite.run(`CREATE INDEX IF NOT EXISTS idx_water_user_id ON water_records(user_id)`);
     this.sqlite.run(`CREATE INDEX IF NOT EXISTS memories_user_id_idx ON memories(user_id)`);
     this.sqlite.run(`CREATE INDEX IF NOT EXISTS summaries_user_id_idx ON conversation_summaries(user_id)`);
+    this.sqlite.run(`CREATE INDEX IF NOT EXISTS idx_medication_user_id ON medication_records(user_id)`);
+    this.sqlite.run(`CREATE INDEX IF NOT EXISTS idx_chronic_user_id ON chronic_conditions(user_id)`);
+
+    // 创建健康观察记录表
+    this.sqlite.run(`
+      CREATE TABLE IF NOT EXISTS health_observations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id TEXT NOT NULL,
+        content TEXT NOT NULL,
+        tags TEXT,
+        timestamp INTEGER NOT NULL
+      )
+    `);
+    this.sqlite.run(`CREATE INDEX IF NOT EXISTS idx_observation_user_id ON health_observations(user_id)`);
 
     // 创建应用日志表
     // 所有日志写入此表（info 及以上级别），控制台不输出，需要时查询数据库

@@ -19,10 +19,11 @@ export interface HeartbeatResult {
 
 /**
  * SQL 预过滤：检查是否有需要关注的异常数据
- * 三项检查：
+ * 四项检查：
  * 1. 最近24小时内是否有睡眠不足4小时(240分钟)的记录
  * 2. 是否超过3天没有体重记录
  * 3. 是否有严重(severity>=8)且未解决的症状
+ * 4. 是否有慢性病进入季节高峰期
  * 只在有异常时才生成关怀消息，控制成本
  * @param store Store 实例
  * @param userId 用户ID
@@ -49,6 +50,20 @@ async function hasAnomalies(store: Store, userId: string): Promise<boolean> {
     const recentSymptoms = await store.symptom.query(userId, { limit: 20 });
     const severeActive = recentSymptoms.some(s => !s.resolvedAt && (s.severity ?? 0) >= 8);
     if (severeActive) return true;
+
+    // 检查4：慢性病季节性提醒（当前月份匹配季节模式）
+    const chronicConditions = await store.chronic.query(userId, { activeOnly: true });
+    const currentMonth = new Date().getMonth() + 1; // 1-12
+    const seasonalActive = chronicConditions.some(c => {
+      if (!c.seasonalPattern) return false;
+      // 从季节模式描述中提取月份（如"9月份严重" -> 9）
+      const monthMatch = c.seasonalPattern.match(/(\d+)月/);
+      if (!monthMatch) return false;
+      const peakMonth = parseInt(monthMatch[1]);
+      // 在高峰月份前 1 个月提醒
+      return currentMonth === peakMonth || currentMonth === (peakMonth === 1 ? 12 : peakMonth - 1);
+    });
+    if (seasonalActive) return true;
 
     return false;
   } catch {
@@ -142,6 +157,22 @@ export async function runHeartbeat(store: Store): Promise<HeartbeatResult[]> {
       if (severeActive.length > 0) {
         const s = severeActive[0];
         messages.push(`你之前记录的"${s.description}"看起来还比较严重，如果持续不舒服建议尽快就医`);
+      }
+
+      // 检查慢性病季节性提醒
+      const chronicConditions = await store.chronic.query(userId, { activeOnly: true });
+      const currentMonth = new Date().getMonth() + 1;
+      for (const c of chronicConditions) {
+        if (!c.seasonalPattern) continue;
+        const monthMatch = c.seasonalPattern.match(/(\d+)月/);
+        if (!monthMatch) continue;
+        const peakMonth = parseInt(monthMatch[1]);
+        // 在高峰月份前 1 个月提醒
+        if (currentMonth === (peakMonth === 1 ? 12 : peakMonth - 1)) {
+          messages.push(`你的${c.condition}通常在${peakMonth}月份容易发作，马上要进入高峰期了，注意提前做好防护`);
+        } else if (currentMonth === peakMonth) {
+          messages.push(`现在是你${c.condition}的高峰期，记得注意防护，有任何不适及时记录`);
+        }
       }
 
       // 只有当有实际消息时才加入结果

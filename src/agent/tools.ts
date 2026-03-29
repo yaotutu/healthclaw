@@ -73,6 +73,100 @@ const RecordWaterParamsSchema = Type.Object({
   note: Type.Optional(Type.String({ description: '备注' })),
 });
 
+/**
+ * 记录用药的参数 Schema
+ */
+const RecordMedicationParamsSchema = Type.Object({
+  medication: Type.String({ description: '药物名称，如布洛芬、扑尔敏等' }),
+  dosage: Type.Optional(Type.String({ description: '剂量，如 "1片"、"10mg"' })),
+  frequency: Type.Optional(Type.String({ description: '用药频次，如 "每日一次"、"每日两次"' })),
+  note: Type.Optional(Type.String({ description: '备注' })),
+});
+
+/**
+ * 查询用药记录的参数 Schema
+ */
+const QueryMedicationParamsSchema = Type.Object({
+  startTime: Type.Optional(Type.Number({ description: '起始时间戳（毫秒）' })),
+  endTime: Type.Optional(Type.Number({ description: '结束时间戳（毫秒）' })),
+  activeOnly: Type.Optional(Type.Boolean({ description: '是否只查询正在服用的药物' })),
+  limit: Type.Optional(Type.Number({ description: '返回数量限制，默认10' })),
+});
+
+/**
+ * 标记停药的参数 Schema
+ */
+const StopMedicationParamsSchema = Type.Object({
+  medicationId: Type.Number({ description: '用药记录ID' }),
+});
+
+/**
+ * 记录慢性病的参数 Schema
+ */
+const RecordChronicConditionParamsSchema = Type.Object({
+  condition: Type.String({ description: '慢性病名称，如"鼻炎"、"偏头痛"' }),
+  severity: Type.Optional(Type.String({ description: '严重程度：轻度/中度/重度' })),
+  seasonalPattern: Type.Optional(Type.String({ description: '季节模式，如"9月份严重（秋季过敏）"' })),
+  triggers: Type.Optional(Type.Array(Type.String(), { description: '触发因素列表' })),
+  notes: Type.Optional(Type.String({ description: '备注' })),
+});
+
+/**
+ * 更新慢性病的参数 Schema
+ */
+const UpdateChronicConditionParamsSchema = Type.Object({
+  conditionId: Type.Number({ description: '慢性病记录ID' }),
+  severity: Type.Optional(Type.String({ description: '严重程度：轻度/中度/重度' })),
+  seasonalPattern: Type.Optional(Type.String({ description: '季节模式' })),
+  triggers: Type.Optional(Type.Array(Type.String(), { description: '触发因素列表' })),
+  notes: Type.Optional(Type.String({ description: '备注' })),
+});
+
+/**
+ * 查询慢性病的参数 Schema
+ */
+const QueryChronicConditionsParamsSchema = Type.Object({
+  activeOnly: Type.Optional(Type.Boolean({ description: '是否只查询活跃的慢性病，默认true' })),
+});
+
+/**
+ * 停用慢性病追踪的参数 Schema
+ */
+const DeactivateChronicConditionParamsSchema = Type.Object({
+  conditionId: Type.Number({ description: '慢性病记录ID' }),
+});
+
+/**
+ * 查询食物-症状关联分析的参数 Schema
+ */
+const QueryFoodSymptomCorrelationParamsSchema = Type.Object({
+  days: Type.Optional(Type.Number({ description: '分析最近多少天的数据，默认30天' })),
+});
+
+/**
+ * 查询健康模式分析的参数 Schema
+ */
+const QueryHealthPatternsParamsSchema = Type.Object({
+  days: Type.Optional(Type.Number({ description: '分析最近多少天的数据，默认30天' })),
+});
+
+/**
+ * 记录健康观察的参数 Schema
+ */
+const RecordObservationParamsSchema = Type.Object({
+  content: Type.String({ description: '观察内容，如"最近睡眠不好"、"感觉压力大"' }),
+  tags: Type.Optional(Type.Array(Type.String(), { description: '标签列表，如 ["睡眠","疲劳"]' })),
+});
+
+/**
+ * 查询健康观察的参数 Schema
+ */
+const QueryObservationsParamsSchema = Type.Object({
+  startTime: Type.Optional(Type.Number({ description: '起始时间戳（毫秒）' })),
+  endTime: Type.Optional(Type.Number({ description: '结束时间戳（毫秒）' })),
+  limit: Type.Optional(Type.Number({ description: '返回数量限制，默认10' })),
+});
+
 // ==================== 查询工具参数 Schema ====================
 
 /**
@@ -153,6 +247,17 @@ type RecordSymptomParams = typeof RecordSymptomParamsSchema;
 type RecordExerciseParams = typeof RecordExerciseParamsSchema;
 type RecordSleepParams = typeof RecordSleepParamsSchema;
 type RecordWaterParams = typeof RecordWaterParamsSchema;
+type RecordMedicationParams = typeof RecordMedicationParamsSchema;
+type QueryMedicationParams = typeof QueryMedicationParamsSchema;
+type StopMedicationParams = typeof StopMedicationParamsSchema;
+type RecordChronicConditionParams = typeof RecordChronicConditionParamsSchema;
+type UpdateChronicConditionParams = typeof UpdateChronicConditionParamsSchema;
+type QueryChronicConditionsParams = typeof QueryChronicConditionsParamsSchema;
+type DeactivateChronicConditionParams = typeof DeactivateChronicConditionParamsSchema;
+type QueryFoodSymptomCorrelationParams = typeof QueryFoodSymptomCorrelationParamsSchema;
+type QueryHealthPatternsParams = typeof QueryHealthPatternsParamsSchema;
+type RecordObservationParams = typeof RecordObservationParamsSchema;
+type QueryObservationsParams = typeof QueryObservationsParamsSchema;
 type QueryRecordsParams = typeof QueryRecordsParamsSchema;
 type ResolveSymptomParams = typeof ResolveSymptomParamsSchema;
 type SaveMemoryParams = typeof SaveMemoryParamsSchema;
@@ -339,6 +444,252 @@ export const createTools = (store: Store, userId: string) => {
       return {
         content: [{ type: 'text', text: `已记录饮水: ${record.amount}ml` }],
         details: { id: record.id, record },
+      };
+    },
+  };
+
+  /**
+   * 记录用药工具
+   * 记录用户的用药信息，包括药物名称、剂量和频次
+   */
+  const recordMedication: AgentTool<RecordMedicationParams> = {
+    name: 'record_medication',
+    label: '记录用药',
+    description: '记录用户的用药信息，包括药物名称、剂量和频次。',
+    parameters: RecordMedicationParamsSchema,
+    execute: async (_toolCallId, params, _signal) => {
+      const record = await store.medication.record(userId, {
+        medication: params.medication,
+        dosage: params.dosage,
+        frequency: params.frequency,
+        note: params.note,
+      });
+
+      return {
+        content: [{ type: 'text', text: `已记录用药: ${record.medication}${record.dosage ? ` ${record.dosage}` : ''}${record.frequency ? ` (${record.frequency})` : ''}` }],
+        details: { id: record.id, record },
+      };
+    },
+  };
+
+  /**
+   * 查询用药记录工具
+   * 查询用户的用药历史，支持按时间范围筛选和只查看正在服用的药物
+   */
+  const queryMedicationRecords: AgentTool<QueryMedicationParams> = {
+    name: 'query_medication_records',
+    label: '查询用药记录',
+    description: '查询用户的用药记录，支持按时间范围筛选和只查看正在服用的药物。',
+    parameters: QueryMedicationParamsSchema,
+    execute: async (_toolCallId, params, _signal) => {
+      const records = await store.medication.query(userId, {
+        startDate: params.startTime,
+        endDate: params.endTime,
+        activeOnly: params.activeOnly,
+        limit: params.limit,
+      });
+      return {
+        content: [{ type: 'text', text: JSON.stringify({ records, count: records.length }) }],
+        details: { records, count: records.length },
+      };
+    },
+  };
+
+  /**
+   * 标记停药工具
+   * 将指定用药记录标记为已停药
+   */
+  const stopMedication: AgentTool<StopMedicationParams> = {
+    name: 'stop_medication',
+    label: '标记停药',
+    description: '将指定用药记录标记为已停药。',
+    parameters: StopMedicationParamsSchema,
+    execute: async (_toolCallId, params, _signal) => {
+      const record = await store.medication.stop(userId, params.medicationId);
+      return {
+        content: [{ type: 'text', text: `已标记停药: ${record.medication}` }],
+        details: { record },
+      };
+    },
+  };
+
+  /**
+   * 记录慢性病工具
+   * 添加用户的新慢性病追踪记录
+   */
+  const recordChronicCondition: AgentTool<RecordChronicConditionParams> = {
+    name: 'record_chronic_condition',
+    label: '记录慢性病',
+    description: '添加用户的慢性病记录，如鼻炎、偏头痛等，用于长期追踪。',
+    parameters: RecordChronicConditionParamsSchema,
+    execute: async (_toolCallId, params, _signal) => {
+      const record = await store.chronic.add(userId, {
+        condition: params.condition,
+        severity: params.severity,
+        seasonalPattern: params.seasonalPattern,
+        triggers: params.triggers,
+        notes: params.notes,
+      });
+
+      return {
+        content: [{ type: 'text', text: `已记录慢性病: ${record.condition}${record.severity ? ` (${record.severity})` : ''}` }],
+        details: { id: record.id, record },
+      };
+    },
+  };
+
+  /**
+   * 更新慢性病工具
+   * 更新指定慢性病的信息（严重程度、触发因素等）
+   */
+  const updateChronicCondition: AgentTool<UpdateChronicConditionParams> = {
+    name: 'update_chronic_condition',
+    label: '更新慢性病',
+    description: '更新用户的慢性病信息，如严重程度、触发因素等。',
+    parameters: UpdateChronicConditionParamsSchema,
+    execute: async (_toolCallId, params, _signal) => {
+      const record = await store.chronic.update(userId, params.conditionId, {
+        severity: params.severity,
+        seasonalPattern: params.seasonalPattern,
+        triggers: params.triggers,
+        notes: params.notes,
+      });
+
+      return {
+        content: [{ type: 'text', text: `已更新慢性病: ${record.condition}` }],
+        details: { record },
+      };
+    },
+  };
+
+  /**
+   * 查询慢性病工具
+   * 查询用户的慢性病列表
+   */
+  const queryChronicConditions: AgentTool<QueryChronicConditionsParams> = {
+    name: 'query_chronic_conditions',
+    label: '查询慢性病',
+    description: '查询用户的慢性病列表，默认只显示活跃的慢性病。',
+    parameters: QueryChronicConditionsParamsSchema,
+    execute: async (_toolCallId, params, _signal) => {
+      const records = await store.chronic.query(userId, {
+        activeOnly: params.activeOnly ?? true,
+      });
+
+      // 解析 triggers JSON 字段
+      const parsed = records.map(r => ({
+        ...r,
+        triggers: r.triggers ? JSON.parse(r.triggers) : [],
+      }));
+
+      return {
+        content: [{ type: 'text', text: JSON.stringify({ records: parsed, count: parsed.length }) }],
+        details: { records: parsed, count: parsed.length },
+      };
+    },
+  };
+
+  /**
+   * 停用慢性病追踪工具
+   * 将指定慢性病标记为不再追踪
+   */
+  const deactivateChronicCondition: AgentTool<DeactivateChronicConditionParams> = {
+    name: 'deactivate_chronic_condition',
+    label: '停用慢性病追踪',
+    description: '将指定慢性病标记为不再追踪（如已治愈）。',
+    parameters: DeactivateChronicConditionParamsSchema,
+    execute: async (_toolCallId, params, _signal) => {
+      const record = await store.chronic.deactivate(userId, params.conditionId);
+      return {
+        content: [{ type: 'text', text: `已停用慢性病追踪: ${record.condition}` }],
+        details: { record },
+      };
+    },
+  };
+
+  /**
+   * 查询食物-症状关联分析工具
+   * 分析用户最近N天的饮食和症状记录，计算每种食物与症状的关联概率
+   */
+  const queryFoodSymptomCorrelation: AgentTool<QueryFoodSymptomCorrelationParams> = {
+    name: 'query_food_symptom_correlation',
+    label: '食物-症状关联分析',
+    description: '分析用户最近N天的饮食和症状记录，计算每种食物与症状出现的关联概率，识别高风险和中风险食物。',
+    parameters: QueryFoodSymptomCorrelationParamsSchema,
+    execute: async (_toolCallId, params, _signal) => {
+      const result = await store.analysis.analyzeFoodSymptomCorrelation(userId, params.days ?? 30);
+      return {
+        content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+        details: result,
+      };
+    },
+  };
+
+  /**
+   * 查询健康模式分析工具
+   * 统计症状频率，分析症状与睡眠、运动的关联
+   */
+  const queryHealthPatterns: AgentTool<QueryHealthPatternsParams> = {
+    name: 'query_health_patterns',
+    label: '健康模式分析',
+    description: '分析用户最近N天的健康数据，统计症状频率，发现症状与睡眠不足、运动的关联模式。',
+    parameters: QueryHealthPatternsParamsSchema,
+    execute: async (_toolCallId, params, _signal) => {
+      const result = await store.analysis.analyzeHealthPatterns(userId, params.days ?? 30);
+      return {
+        content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+        details: result,
+      };
+    },
+  };
+
+  /**
+   * 记录健康观察工具
+   * 记录用户的非结构化健康观察，如"最近睡眠不好"、"感觉压力大"等
+   */
+  const recordObservation: AgentTool<RecordObservationParams> = {
+    name: 'record_observation',
+    label: '记录健康观察',
+    description: '记录用户的健康观察或感受，如"最近睡眠不好"、"感觉压力大"等模糊描述。',
+    parameters: RecordObservationParamsSchema,
+    execute: async (_toolCallId, params, _signal) => {
+      const record = await store.observation.record(userId, {
+        content: params.content,
+        tags: params.tags,
+      });
+
+      return {
+        content: [{ type: 'text', text: `已记录观察: ${record.content}` }],
+        details: { id: record.id, record },
+      };
+    },
+  };
+
+  /**
+   * 查询健康观察工具
+   * 查询用户的健康观察记录
+   */
+  const queryObservations: AgentTool<QueryObservationsParams> = {
+    name: 'query_observations',
+    label: '查询健康观察',
+    description: '查询用户的健康观察记录，支持按时间范围筛选。',
+    parameters: QueryObservationsParamsSchema,
+    execute: async (_toolCallId, params, _signal) => {
+      const records = await store.observation.query(userId, {
+        startDate: params.startTime,
+        endDate: params.endTime,
+        limit: params.limit,
+      });
+
+      // 解析 tags JSON 字段
+      const parsed = records.map(r => ({
+        ...r,
+        tags: r.tags ? JSON.parse(r.tags) : [],
+      }));
+
+      return {
+        content: [{ type: 'text', text: JSON.stringify({ records: parsed, count: parsed.length }) }],
+        details: { records: parsed, count: parsed.length },
       };
     },
   };
@@ -634,6 +985,17 @@ export const createTools = (store: Store, userId: string) => {
     recordExercise,
     recordSleep,
     recordWater,
+    recordMedication,
+    queryMedicationRecords,
+    stopMedication,
+    recordChronicCondition,
+    updateChronicCondition,
+    queryChronicConditions,
+    deactivateChronicCondition,
+    queryFoodSymptomCorrelation,
+    queryHealthPatterns,
+    recordObservation,
+    queryObservations,
     getProfile,
     updateProfile,
     queryBodyRecords,

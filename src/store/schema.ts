@@ -182,6 +182,78 @@ export const waterRecords = sqliteTable('water_records', {
 });
 
 /**
+ * 用药记录表
+ * 存储用户的用药信息，包括药物名称、剂量、频次等
+ * 支持记录用药的开始和结束时间，用于追踪用药历史
+ */
+export const medicationRecords = sqliteTable('medication_records', {
+  /** 记录ID，自增主键 */
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  /** 用户ID */
+  userId: text('user_id').notNull(),
+  /** 药物名称 */
+  medication: text('medication').notNull(),
+  /** 剂量，如 "1片"、"10mg" */
+  dosage: text('dosage'),
+  /** 用药频次，如 "每日一次"、"每日两次" */
+  frequency: text('frequency'),
+  /** 用药开始时间戳 */
+  startDate: integer('start_date'),
+  /** 用药结束时间戳（null 表示仍在服用） */
+  endDate: integer('end_date'),
+  /** 备注 */
+  note: text('note'),
+  /** 记录时间戳 */
+  timestamp: integer('timestamp').notNull(),
+});
+
+/**
+ * 慢性病记录表
+ * 存储用户的慢性病信息，包括严重程度、季节模式、触发因素等
+ * 用于长期追踪慢性病状态，支持症状关联和季节性提醒
+ */
+export const chronicConditions = sqliteTable('chronic_conditions', {
+  /** 记录ID，自增主键 */
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  /** 用户ID */
+  userId: text('user_id').notNull(),
+  /** 病名，如"鼻炎"、"偏头痛" */
+  condition: text('condition').notNull(),
+  /** 严重程度：轻度/中度/重度 */
+  severity: text('severity'),
+  /** 季节模式，如"9月份严重（秋季过敏）" */
+  seasonalPattern: text('seasonal_pattern'),
+  /** 触发因素，JSON 数组字符串 */
+  triggers: text('triggers'),
+  /** 备注 */
+  notes: text('notes'),
+  /** 是否活跃（false 表示已治愈或不再追踪） */
+  isActive: integer('is_active', { mode: 'boolean' }).notNull().default(true),
+  /** 创建时间戳 */
+  createdAt: integer('created_at').notNull(),
+  /** 更新时间戳 */
+  updatedAt: integer('updated_at').notNull(),
+});
+
+/**
+ * 健康观察记录表
+ * 存储用户的非结构化健康观察，如"最近睡眠不好"、"感觉压力大"等
+ * 用于记录不适合用具体指标衡量的健康相关感受
+ */
+export const healthObservations = sqliteTable('health_observations', {
+  /** 记录ID，自增主键 */
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  /** 用户ID */
+  userId: text('user_id').notNull(),
+  /** 观察内容 */
+  content: text('content').notNull(),
+  /** 标签，JSON 数组字符串，如 ["睡眠","疲劳"] */
+  tags: text('tags'),
+  /** 记录时间戳 */
+  timestamp: integer('timestamp').notNull(),
+});
+
+/**
  * 消息历史表
  * 存储用户与助手的对话记录
  * metadata 字段用于存储图片 URL/格式元信息，不存储 base64 数据
@@ -296,3 +368,18 @@ export type NewMemoryRecord = typeof memories.$inferInsert;
 export type ConversationSummary = typeof conversationSummaries.$inferSelect;
 /** 对话摘要插入类型 */
 export type NewConversationSummary = typeof conversationSummaries.$inferInsert;
+
+/** 用药记录查询结果类型 */
+export type MedicationRecord = typeof medicationRecords.$inferSelect;
+/** 用药记录插入类型 */
+export type NewMedicationRecord = typeof medicationRecords.$inferInsert;
+
+/** 慢性病记录查询结果类型 */
+export type ChronicCondition = typeof chronicConditions.$inferSelect;
+/** 慢性病记录插入类型 */
+export type NewChronicCondition = typeof chronicConditions.$inferInsert;
+
+/** 健康观察记录查询结果类型 */
+export type HealthObservation = typeof healthObservations.$inferSelect;
+/** 健康观察记录插入类型 */
+export type NewHealthObservation = typeof healthObservations.$inferInsert;
