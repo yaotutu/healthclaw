@@ -1,6 +1,7 @@
-import type { Db } from './db';
-import { sleepRecords, type SleepRecord } from './schema';
-import { createRecordStore, type QueryOptions } from './record-store';
+/** 睡眠记录存储模块 - 从 src/store/sleep.ts 迁移至功能域 */
+import type { Db } from '../../store/db';
+import { sleepRecords, type SleepRecord } from '../../store/schema';
+import { createRecordStore, type QueryOptions } from '../../store/record-store';
 
 /**
  * 睡眠记录的数据接口

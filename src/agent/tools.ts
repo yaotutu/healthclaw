@@ -4,6 +4,7 @@ import type { Store, UserProfile } from '../store';
 import { createQueryTool } from './tool-factory';
 import { createWaterTools } from '../features/water/tools';
 import { createBodyTools } from '../features/body/tools';
+import { createSleepTools } from '../features/sleep/tools';
 
 // ==================== 记录工具参数 Schema ====================
 
@@ -43,18 +44,6 @@ const RecordExerciseParamsSchema = Type.Object({
   heartRateAvg: Type.Optional(Type.Number({ description: '平均心率 bpm' })),
   heartRateMax: Type.Optional(Type.Number({ description: '最大心率 bpm' })),
   distance: Type.Optional(Type.Number({ description: '距离 km' })),
-  note: Type.Optional(Type.String({ description: '备注' })),
-});
-
-/**
- * 记录睡眠的参数 Schema
- */
-const RecordSleepParamsSchema = Type.Object({
-  duration: Type.Number({ description: '睡眠时长 分钟' }),
-  quality: Type.Optional(Type.Number({ description: '睡眠质量 1-5，5为最好' })),
-  bedTime: Type.Optional(Type.String({ description: '入睡时间，格式 "YYYY-MM-DD HH:mm"，如 "2026-03-28 02:00"' })),
-  wakeTime: Type.Optional(Type.String({ description: '醒来时间，格式 "YYYY-MM-DD HH:mm"，如 "2026-03-28 08:00"' })),
-  deepSleep: Type.Optional(Type.Number({ description: '深睡时长 分钟' })),
   note: Type.Optional(Type.String({ description: '备注' })),
 });
 
@@ -220,7 +209,6 @@ const UpdateProfileParamsSchema = Type.Object({
 type RecordDietParams = typeof RecordDietParamsSchema;
 type RecordSymptomParams = typeof RecordSymptomParamsSchema;
 type RecordExerciseParams = typeof RecordExerciseParamsSchema;
-type RecordSleepParams = typeof RecordSleepParamsSchema;
 type RecordMedicationParams = typeof RecordMedicationParamsSchema;
 type QueryMedicationParams = typeof QueryMedicationParamsSchema;
 type StopMedicationParams = typeof StopMedicationParamsSchema;
@@ -335,48 +323,8 @@ export const createTools = (store: Store, userId: string) => {
     },
   };
 
-  /**
-   * 记录睡眠工具
-   * 记录用户的睡眠数据
-   */
-  const recordSleep: AgentTool<RecordSleepParams> = {
-    name: 'record_sleep',
-    label: '记录睡眠',
-    description: '记录用户的睡眠数据，包括时长、质量、入睡和醒来时间等',
-    parameters: RecordSleepParamsSchema,
-    execute: async (_toolCallId, params, _signal) => {
-      // 解析 bedTime/wakeTime 字符串为毫秒时间戳
-      // LLM 传入格式为 "YYYY-MM-DD HH:mm"，由代码负责转换，避免 LLM 计算时间戳出错
-      const parseDateTime = (str: string | undefined): number | undefined => {
-        if (!str) return undefined;
-        // 支持 "YYYY-MM-DD HH:mm" 或 "YYYY-MM-DDTHH:mm" 格式
-        const match = str.match(/^(\d{4})-(\d{1,2})-(\d{1,2})[T ](\d{1,2}):(\d{1,2})/);
-        if (match) {
-          return new Date(+match[1], +match[2] - 1, +match[3], +match[4], +match[5]).getTime();
-        }
-        // 尝试直接解析
-        const d = new Date(str);
-        return isNaN(d.getTime()) ? undefined : d.getTime();
-      };
-
-      const record = await store.sleep.record(userId, {
-        duration: params.duration,
-        quality: params.quality,
-        bedTime: parseDateTime(params.bedTime),
-        wakeTime: parseDateTime(params.wakeTime),
-        deepSleep: params.deepSleep,
-        note: params.note,
-      });
-
-      const duration = record.duration ?? 0;
-      const hours = Math.floor(duration / 60);
-      const mins = duration % 60;
-      return {
-        content: [{ type: 'text', text: `已记录睡眠: ${hours}小时${mins}分钟${record.quality ? ` (质量 ${record.quality}/5)` : ''}` }],
-        details: { id: record.id, record },
-      };
-    },
-  };
+  // 睡眠工具已迁移至 features/sleep/tools.ts
+  const sleepTools = createSleepTools(store.sleep, userId);
 
   // 饮水工具已迁移至 features/water/tools.ts
   const waterTools = createWaterTools(store.water, userId);
@@ -720,13 +668,7 @@ export const createTools = (store: Store, userId: string) => {
     queryFn: (options) => store.exercise.query(userId, options),
   });
 
-  /** 查询睡眠记录 */
-  const querySleepRecords = createQueryTool({
-    name: 'query_sleep_records',
-    label: '查询睡眠记录',
-    description: '查询用户的睡眠记录，支持按时间范围筛选。',
-    queryFn: (options) => store.sleep.query(userId, options),
-  });
+  // 查询睡眠记录已迁移至 features/sleep/tools.ts
 
   // 查询饮水记录已迁移至 features/water/tools.ts
 
@@ -820,7 +762,7 @@ export const createTools = (store: Store, userId: string) => {
     recordDiet,
     recordSymptom,
     recordExercise,
-    recordSleep,
+    recordSleep: sleepTools.recordSleep,
     recordWater: waterTools.recordWater,
     recordMedication,
     queryMedicationRecords,
@@ -839,7 +781,7 @@ export const createTools = (store: Store, userId: string) => {
     queryDietRecords,
     querySymptomRecords,
     queryExerciseRecords,
-    querySleepRecords,
+    querySleepRecords: sleepTools.querySleepRecords,
     queryWaterRecords: waterTools.queryWaterRecords,
     resolveSymptom,
     saveMemory,

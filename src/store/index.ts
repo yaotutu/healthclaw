@@ -4,7 +4,7 @@ import { createDietStore, type DietStore } from './diet';
 import { createExerciseStore, type ExerciseStore } from './exercise';
 import { createMessageStore, type MessageStore } from './messages';
 import { createProfileStore, type ProfileStore } from './profile';
-import { createSleepStore, type SleepStore } from './sleep';
+import { createSleepStore, type SleepStore } from '../features/sleep/store';
 import { createSymptomStore, type SymptomStore } from './symptom';
 import { createWaterStore, type WaterStore } from '../features/water/store';
 import { createMemoryStore, type MemoryStore } from './memory';
