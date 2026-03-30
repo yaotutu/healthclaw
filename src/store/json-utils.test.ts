@@ -4,7 +4,7 @@ import { safeJsonParse, safeJsonStringify } from './json-utils';
 
 describe('safeJsonParse', () => {
   test('parses valid JSON string', () => {
-    expect(safeJsonParse('["a","b"]', [])).toEqual(['a', 'b']);
+    expect(safeJsonParse<string[]>('["a","b"]', [])).toEqual(['a', 'b']);
   });
 
   test('returns fallback for null input', () => {
