@@ -14,7 +14,10 @@ import {
   // 以下三个表是新增的健康记录表，需要注册到 Drizzle 以支持 Kit 迁移
   medicationRecords,     // 用药记录表
   chronicConditions,     // 慢性病记录表
-  healthObservations     // 健康观察记录表
+  healthObservations,    // 健康观察记录表
+  // 心跳任务表和应用日志表，注册到 Drizzle 以支持 Kit 迁移
+  heartbeatTasks,        // 心跳任务表（用户主动关怀定时任务）
+  logs                   // 应用日志表（结构化日志持久化）
 } from './schema';
 
 /**
@@ -38,6 +41,9 @@ export interface CreateDbResult {
     medicationRecords: typeof medicationRecords;     // 用药记录
     chronicConditions: typeof chronicConditions;     // 慢性病记录
     healthObservations: typeof healthObservations;   // 健康观察记录
+    // 心跳任务表和应用日志表的类型定义，注册后 Drizzle 可正确推断类型
+    heartbeatTasks: typeof heartbeatTasks;           // 心跳任务
+    logs: typeof logs;                               // 应用日志
   }>>;
   sqlite: Database;
 }
@@ -65,7 +71,10 @@ export const createDb = (dbPath: string): CreateDbResult => {
       // 注册新增的三个表到 Drizzle schema，使 Drizzle Kit 能够识别并迁移这些表
       medicationRecords,     // 用药记录表
       chronicConditions,     // 慢性病记录表
-      healthObservations     // 健康观察记录表
+      healthObservations,    // 健康观察记录表
+      // 注册心跳任务表和应用日志表，使 Drizzle Kit 能够管理这些表的迁移
+      heartbeatTasks,        // 心跳任务表
+      logs                   // 应用日志表
     }
   });
   return { db, sqlite };
