@@ -21,6 +21,7 @@
     "@mariozechner/pi-agent-core": "^0.62.0",
     "@mariozechner/pi-ai": "^0.62.0",
     "@sinclair/typebox": "^0.34.48",
+    "cron-parser": "^5.5.0",
     "dotenv": "^17.3.1",
     "drizzle-orm": "^0.40.0",
     "pino": "^10.3.1",

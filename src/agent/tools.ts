@@ -10,6 +10,9 @@ import { createMedicationTools } from '../features/medication/tools';
 import { createChronicTools } from '../features/chronic/tools';
 import { createMemoryTools } from '../features/memory/tools';
 import { createProfileTools } from '../features/profile/tools';
+import { createCronTools } from '../cron/tools';
+import type { CronService } from '../cron/service';
+import { createHeartbeatTools } from '../features/heartbeat/tools';
 
 // ==================== 记录工具参数 Schema ====================
 
@@ -21,9 +24,16 @@ import { createProfileTools } from '../features/profile/tools';
  * 遵循原则：工具只提供数据，所有决策由 AI 完成
  * @param store 数据存储实例，提供各类型健康记录的数据操作
  * @param userId 当前用户 ID，用于数据隔离
+ * @param channel 当前通道名称，用于定时任务推送
+ * @param cronService 可选的定时任务服务实例
  * @returns 包含所有 Agent 工具的对象
  */
-export const createTools = (store: Store, userId: string) => {
+export const createTools = (
+  store: Store,
+  userId: string,
+  channel: string = 'websocket',
+  cronService?: CronService
+) => {
   // 身体数据工具已迁移至 features/body/tools.ts
   const bodyTools = createBodyTools(store.body, userId);
 
@@ -60,6 +70,12 @@ export const createTools = (store: Store, userId: string) => {
 
   // 档案工具已迁移至 features/profile/tools.ts
   const profileTools = createProfileTools(store.profile, userId);
+
+  // 定时任务工具（仅在 cronService 可用时创建）
+  const cronTools = cronService ? createCronTools(cronService, userId, channel) : null;
+
+  // 心跳任务管理工具
+  const heartbeatTools = createHeartbeatTools(store.heartbeatTask, userId);
 
   // ==================== 查询工具 ====================
   // 6 个标准查询工具使用 createQueryTool 工厂函数生成，消除重复代码
@@ -99,5 +115,15 @@ export const createTools = (store: Store, userId: string) => {
     saveMemory: memoryTools.saveMemory,
     queryMemories: memoryTools.queryMemories,
     deleteMemory: memoryTools.deleteMemory,
+    // 定时任务工具
+    ...(cronTools ? {
+      scheduleCron: cronTools.scheduleCron,
+      listCronJobs: cronTools.listCronJobs,
+      removeCronJob: cronTools.removeCronJob,
+    } : {}),
+    // 心跳任务工具
+    addHeartbeatTask: heartbeatTools.addHeartbeatTask,
+    listHeartbeatTasks: heartbeatTools.listHeartbeatTasks,
+    removeHeartbeatTask: heartbeatTools.removeHeartbeatTask,
   };
 };

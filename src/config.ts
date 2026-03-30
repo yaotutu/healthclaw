@@ -36,4 +36,16 @@ export const config = {
     /** 日志级别：debug / info / warn / error，默认 info */
     level: process.env.LOG_LEVEL || 'info',
   },
+
+  /** 心跳相关配置 */
+  heartbeat: {
+    /** 心跳检查间隔（毫秒），默认 15 分钟 */
+    intervalMs: Number(process.env.HEARTBEAT_INTERVAL_MS) || 15 * 60 * 1000,
+  },
+
+  /** 定时任务相关配置 */
+  cron: {
+    /** 定时任务存储文件路径 */
+    storePath: process.env.CRON_STORE_PATH || './data/cron/jobs.json',
+  },
 };

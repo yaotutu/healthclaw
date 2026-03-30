@@ -1,5 +1,5 @@
 import { QQBotClient, type MessageEvent } from 'pure-qqbot';
-import type { ChannelAdapter, MessageHandler, ChannelMessage, ChannelContext } from './types';
+import type { DeliverableChannel, MessageHandler, ChannelMessage, ChannelContext } from './types';
 import { logger } from '../infrastructure/logger';
 
 export interface QQChannelOptions {
@@ -7,7 +7,7 @@ export interface QQChannelOptions {
   clientSecret: string;
 }
 
-export class QQChannel implements ChannelAdapter {
+export class QQChannel implements DeliverableChannel {
   readonly name = 'qq';
   private client: QQBotClient;
   private messageHandler?: MessageHandler;
@@ -79,6 +79,28 @@ export class QQChannel implements ChannelAdapter {
 
   onMessage(handler: MessageHandler): void {
     this.messageHandler = handler;
+  }
+
+  /**
+   * 主动向用户发送消息（无需用户先发消息）
+   * 直接从 userId 中解析 openid，不需要缓存
+   * userId 格式：qq:{openid}，openid 即为 QQ Bot API 所需的用户标识
+   * @param userId 用户ID（格式: "qq:openid"）
+   * @param text 消息内容
+   * @returns 是否成功送达
+   */
+  async sendToUser(userId: string, text: string): Promise<boolean> {
+    // 从 userId 中提取 openid（格式: "qq:{openid}"）
+    const openid = userId.replace(/^qq:/, '');
+    if (!openid) return false;
+
+    try {
+      const result = await this.client.sendPrivateMessageProactive(openid, text);
+      return result.success;
+    } catch (err) {
+      logger.error('[qq] 主动推送失败 userId=%s error=%s', userId, (err as Error).message);
+      return false;
+    }
   }
 }
 

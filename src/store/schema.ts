@@ -383,3 +383,29 @@ export type NewChronicCondition = typeof chronicConditions.$inferInsert;
 export type HealthObservation = typeof healthObservations.$inferSelect;
 /** 健康观察记录插入类型 */
 export type NewHealthObservation = typeof healthObservations.$inferInsert;
+
+/**
+ * 心跳任务表
+ * 存储每个用户的定期健康检查提示词
+ * 心跳 tick 时，将这些提示词 + 用户健康上下文一起发给 LLM，由 LLM 决定是否需要主动关怀
+ */
+export const heartbeatTasks = sqliteTable('heartbeat_tasks', {
+  /** 任务ID，自增主键 */
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  /** 用户ID */
+  userId: text('user_id').notNull(),
+  /** 任务提示词内容（自然语言描述，如"检查睡眠是否充足"） */
+  content: text('content').notNull(),
+  /** 是否启用 */
+  enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
+  /** 创建时间戳 */
+  createdAt: integer('created_at').notNull(),
+}, (table) => [
+  /** 用户ID索引 */
+  index('heartbeat_tasks_user_id_idx').on(table.userId),
+]);
+
+/** 心跳任务查询结果类型 */
+export type HeartbeatTask = typeof heartbeatTasks.$inferSelect;
+/** 心跳任务插入类型 */
+export type NewHeartbeatTask = typeof heartbeatTasks.$inferInsert;

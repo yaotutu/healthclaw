@@ -13,6 +13,7 @@ import { createLogStore, type LogStore } from './logs';
 import { createMedicationStore, type MedicationStore } from '../features/medication/store';
 import { createChronicStore, type ChronicStore } from '../features/chronic/store';
 import { createObservationStore, type ObservationStore } from '../features/observation/store';
+import { createHeartbeatTaskStore, type HeartbeatTaskStore } from '../features/heartbeat/store';
 import {
   userProfiles,
   bodyRecords,
@@ -27,6 +28,7 @@ import {
   medicationRecords,
   chronicConditions,
   healthObservations,
+  heartbeatTasks,
   type Message,
   type UserProfile,
   type MemoryRecord,
@@ -34,6 +36,8 @@ import {
   type MedicationRecord,
   type ChronicCondition,
   type HealthObservation,
+  type HeartbeatTask,
+  type NewHeartbeatTask,
 } from './schema';
 import type { Database } from 'bun:sqlite';
 
@@ -54,6 +58,7 @@ export {
   createMedicationStore,
   createChronicStore,
   createObservationStore,
+  createHeartbeatTaskStore,
 };
 
 // 导出所有 schema 表
@@ -90,6 +95,7 @@ export type {
   MedicationStore,
   ChronicStore,
   ObservationStore,
+  HeartbeatTaskStore,
   Message,
   UserProfile,
   MemoryRecord,
@@ -131,6 +137,9 @@ export class Store {
   // 健康观察记录存储
   readonly observation: ObservationStore;
 
+  // 心跳任务存储
+  readonly heartbeatTask: HeartbeatTaskStore;
+
   constructor(dbPath: string) {
     const { db, sqlite } = createDb(dbPath);
     this.db = db;
@@ -161,6 +170,9 @@ export class Store {
 
     // 健康观察记录存储
     this.observation = createObservationStore(this.db);
+
+    // 心跳任务存储
+    this.heartbeatTask = createHeartbeatTaskStore(this.sqlite);
   }
 
   /**
@@ -383,6 +395,19 @@ export class Store {
     this.sqlite.run(`CREATE INDEX IF NOT EXISTS idx_logs_time ON logs(time)`);
     this.sqlite.run(`CREATE INDEX IF NOT EXISTS idx_logs_module ON logs(module)`);
     this.sqlite.run(`CREATE INDEX IF NOT EXISTS idx_logs_level ON logs(level)`);
+
+    // 创建心跳任务表
+    // 每个用户可以有多条心跳提示词，定时将这些提示词 + 用户上下文发给 LLM
+    this.sqlite.run(`
+      CREATE TABLE IF NOT EXISTS heartbeat_tasks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id TEXT NOT NULL,
+        content TEXT NOT NULL,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        created_at INTEGER NOT NULL
+      )
+    `);
+    this.sqlite.run(`CREATE INDEX IF NOT EXISTS idx_heartbeat_tasks_user_id ON heartbeat_tasks(user_id)`);
   }
 
   /** 关闭数据库连接 */

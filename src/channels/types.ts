@@ -81,6 +81,21 @@ export type MessageHandler = (
   context: ChannelContext
 ) => Promise<void>;
 
+/**
+ * 支持主动推送的通道
+ * 在 ChannelAdapter 基础上增加向用户主动发送消息的能力
+ * 用于 heartbeat、cron 等场景，无需用户先发消息
+ */
+export interface DeliverableChannel extends ChannelAdapter {
+  /**
+   * 主动向用户发送消息
+   * @param userId 用户ID（格式: "websocket:xxx" 或 "qq:xxx"）
+   * @param text 消息内容
+   * @returns 是否成功送达
+   */
+  sendToUser(userId: string, text: string): Promise<boolean>;
+}
+
 // WebSocket 特有类型
 export interface ClientMessage {
   type: 'prompt' | 'continue' | 'abort';

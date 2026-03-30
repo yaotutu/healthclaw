@@ -1,10 +1,10 @@
-import { readFileSync } from 'fs';
-import { join } from 'path';
+import { getModel, streamSimple } from '@mariozechner/pi-ai';
+import type { Context, Tool } from '@mariozechner/pi-ai';
+import { Type } from '@sinclair/typebox';
 import type { Store } from '../store';
+import { config } from '../config';
+import { assembleSystemPrompt } from '../prompts/assembler';
 import { logger } from '../infrastructure/logger';
-
-/** 心跳任务文件路径 */
-const HEARTBEAT_FILE = join(import.meta.dir, 'heartbeat.md');
 
 /**
  * 心跳检查结果
@@ -18,105 +18,117 @@ export interface HeartbeatResult {
 }
 
 /**
- * SQL 预过滤：检查是否有需要关注的异常数据
- * 四项检查：
- * 1. 最近24小时内是否有睡眠不足4小时(240分钟)的记录
- * 2. 是否超过3天没有体重记录
- * 3. 是否有严重(severity>=8)且未解决的症状
- * 4. 是否有慢性病进入季节高峰期
- * 只在有异常时才生成关怀消息，控制成本
+ * 心跳虚拟工具的参数 Schema
+ * LLM 通过此工具返回决策结果
+ */
+const HeartbeatToolParamsSchema = Type.Object({
+  /** 决策：skip=无需打扰用户，run=发送关怀消息 */
+  action: Type.Union([Type.Literal('skip'), Type.Literal('run')], { description: '决策结果：skip=无需打扰，run=发送关怀消息' }),
+  /** 关怀消息内容（action=run 时必填） */
+  message: Type.Optional(Type.String({ description: '关怀消息内容，action=run 时必须提供' })),
+});
+
+/**
+ * 心跳虚拟工具定义
+ * LLM 通过调用此工具来返回结构化的决策结果
+ */
+const heartbeatTool = {
+  name: 'heartbeat',
+  description: '根据用户健康数据决定是否需要主动发送关怀消息',
+  parameters: HeartbeatToolParamsSchema,
+};
+
+/**
+ * 心跳系统提示词
+ * 指导 LLM 如何分析用户数据并做出决策
+ */
+const HEARTBEAT_SYSTEM_PROMPT = `你是健康顾问的心跳检查模块。当前是定时检查时间。
+
+你的任务：
+1. 仔细分析下方用户的所有健康数据（档案、最近记录、活跃症状、慢性病、记忆等）
+2. 根据用户的心跳任务列表，判断是否需要主动发送关怀消息
+3. 调用 heartbeat 工具来报告你的决定
+
+决策原则：
+- 如果数据一切正常，选择 skip
+- 如果发现需要关注的情况，选择 run 并提供温暖的个性化关怀消息
+- 消息应该具体、有针对性，引用用户的实际数据，而不是笼统的模板
+- 语气温暖亲切，像一个关心你的朋友
+- 不要过度提醒，只在确实需要关注时才 run`;
+
+/**
+ * 从数据库读取用户的心跳任务
  * @param store Store 实例
  * @param userId 用户ID
- * @returns 是否存在异常数据
+ * @returns 心跳任务内容数组
  */
-async function hasAnomalies(store: Store, userId: string): Promise<boolean> {
-  const now = Date.now();
-  const oneDayAgo = now - 24 * 60 * 60 * 1000;
-  const threeDaysAgo = now - 3 * 24 * 60 * 60 * 1000;
-
-  try {
-    // 检查1：最近24小时睡眠不足4小时
-    const recentSleep = await store.sleep.query(userId, { startDate: oneDayAgo, limit: 5 });
-    const poorSleep = recentSleep.some(r => r.duration && r.duration < 240);
-    if (poorSleep) return true;
-
-    // 检查2：超过3天没有体重记录
-    const recentBody = await store.body.query(userId, { startDate: threeDaysAgo, limit: 1 });
-    // 只有当用户之前有过记录（总共有记录）但最近3天没有时才算异常
-    const allBody = await store.body.query(userId, { limit: 1 });
-    if (allBody.length > 0 && recentBody.length === 0) return true;
-
-    // 检查3：严重且未解决的症状
-    const recentSymptoms = await store.symptom.query(userId, { limit: 20 });
-    const severeActive = recentSymptoms.some(s => !s.resolvedAt && (s.severity ?? 0) >= 8);
-    if (severeActive) return true;
-
-    // 检查4：慢性病季节性提醒（当前月份匹配季节模式）
-    const chronicConditions = await store.chronic.query(userId, { activeOnly: true });
-    const currentMonth = new Date().getMonth() + 1; // 1-12
-    const seasonalActive = chronicConditions.some(c => {
-      if (!c.seasonalPattern) return false;
-      // 从季节模式描述中提取月份（如"9月份严重" -> 9）
-      const monthMatch = c.seasonalPattern.match(/(\d+)月/);
-      if (!monthMatch) return false;
-      const peakMonth = parseInt(monthMatch[1]);
-      // 在高峰月份前 1 个月提醒
-      return currentMonth === peakMonth || currentMonth === (peakMonth === 1 ? 12 : peakMonth - 1);
-    });
-    if (seasonalActive) return true;
-
-    return false;
-  } catch {
-    return false;
-  }
+function getUserHeartbeatTasks(store: Store, userId: string): string[] {
+  return store.heartbeatTask.getEnabledTasks(userId);
 }
 
 /**
- * 读取心跳任务文件
- * 解析 Active Tasks 和 Completed 部分
- * 从 heartbeat.md 文件中提取活跃的任务列表
- * @returns 包含活跃任务字符串数组的对象
+ * 对单个用户执行心跳检查
+ * 将用户心跳任务 + 用户上下文发给 LLM，由 LLM 决定是否需要发送关怀消息
+ * 核心原则：代码只负责搬运数据，分析和决策完全由 LLM 完成
+ * @param store Store 实例
+ * @param userId 用户ID
+ * @param tasks 心跳任务列表
+ * @returns LLM 决策结果，null 表示 skip
  */
-function readHeartbeatFile(): { tasks: string[] } {
-  try {
-    const content = readFileSync(HEARTBEAT_FILE, 'utf-8');
-    // 使用正则匹配 "## Active Tasks" 和 "## Completed" 之间的内容
-    const activeMatch = content.match(/## Active Tasks\s*\n([\s\S]*?)(?=## Completed|$)/);
-    if (!activeMatch) return { tasks: [] };
+async function checkUser(
+  store: Store,
+  userId: string,
+  tasks: string[]
+): Promise<string | null> {
+  // 获取用户完整上下文（档案、最近记录、活跃症状、慢性病、记忆等）
+  const userContext = await assembleSystemPrompt(store, userId);
 
-    // 提取以 "- " 开头的任务条目
-    const tasks = activeMatch[1]
-      .split('\n')
-      .map(line => line.trim())
-      .filter(line => line.startsWith('- '))
-      .map(line => line.replace(/^-\s*/, ''));
+  // 获取 LLM 模型
+  const model = getModel(config.llm.provider as any, config.llm.model as any);
 
-    return { tasks };
-  } catch {
-    return { tasks: [] };
+  // 构建 LLM 请求上下文
+  const context: Context = {
+    systemPrompt: `${HEARTBEAT_SYSTEM_PROMPT}\n\n${userContext}`,
+    messages: [{
+      role: 'user',
+      content: `当前时间：${new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}\n\n## 我的心跳任务\n${tasks.map(t => `- ${t}`).join('\n')}`,
+      timestamp: Date.now(),
+    }],
+    tools: [heartbeatTool],
+  };
+
+  // 调用 LLM 并解析结构化的决策结果
+  const stream = streamSimple(model, context);
+  let action: 'skip' | 'run' | null = null;
+  let message = '';
+
+  for await (const event of stream) {
+    if (event.type === 'done' && event.message) {
+      for (const block of event.message.content) {
+        if (block.type === 'toolCall' && block.name === 'heartbeat') {
+          const args = block.arguments;
+          action = args.action as 'skip' | 'run';
+          message = (args.message as string) || '';
+        }
+      }
+    }
   }
+
+  if (action === 'run' && message) {
+    return message;
+  }
+  return null;
 }
 
 /**
  * 执行心跳任务
- * 读取任务文件，获取所有用户，检查异常，生成关怀消息
- * 整个流程：
- * 1. 读取 heartbeat.md 获取活跃任务
- * 2. 通过 messages 表获取所有有记录的用户
- * 3. 对每个用户进行异常检测（睡眠不足、久未称重、严重症状）
- * 4. 对有异常的用户生成对应的关怀消息
+ * 获取所有用户 → 对每个用户从数据库读心跳任务 → 发给 LLM 决策
+ * 核心原则：代码只负责搬运数据，分析和决策完全由 LLM 完成
  * @param store Store 实例
- * @returns 需要推送的消息列表
+ * @returns 需要推送的关怀消息列表
  */
 export async function runHeartbeat(store: Store): Promise<HeartbeatResult[]> {
-  // 读取任务文件
-  const { tasks } = readHeartbeatFile();
-  if (tasks.length === 0) {
-    logger.debug('[heartbeat] no active tasks');
-    return [];
-  }
-
-  // 获取所有有记录的用户ID（通过查询 messages 表获取所有不重复的 user_id）
+  // 获取所有有消息记录的用户ID
   const userIdRows = store.sqlite.query('SELECT DISTINCT user_id FROM messages').all() as Array<{ user_id: string }>;
   const userIds = userIdRows.map(r => r.user_id);
   if (userIds.length === 0) return [];
@@ -125,62 +137,19 @@ export async function runHeartbeat(store: Store): Promise<HeartbeatResult[]> {
 
   for (const userId of userIds) {
     try {
-      const hasIssue = await hasAnomalies(store, userId);
-      if (!hasIssue) continue;
+      // 从数据库读取该用户的心跳任务
+      const tasks = getUserHeartbeatTasks(store, userId);
+      if (tasks.length === 0) continue; // 没有任务则跳过
 
-      // 收集用户数据，构造简单的关怀消息
-      // 这里不用 LLM，直接生成固定格式的关怀消息，避免成本过高
-      const messages: string[] = [];
-
-      const now = Date.now();
-      const oneDayAgo = now - 24 * 60 * 60 * 1000;
-      const threeDaysAgo = now - 3 * 24 * 60 * 60 * 1000;
-
-      // 检查睡眠不足
-      const recentSleep = await store.sleep.query(userId, { startDate: oneDayAgo, limit: 5 });
-      const poorSleep = recentSleep.filter(r => r.duration && r.duration < 240);
-      if (poorSleep.length > 0) {
-        const hours = Math.round(poorSleep[0].duration! / 60 * 10) / 10;
-        messages.push(`注意到你昨晚只睡了${hours}小时，睡眠充足对健康很重要，今晚早点休息吧`);
-      }
-
-      // 检查体重记录缺失
-      const recentBody = await store.body.query(userId, { startDate: threeDaysAgo, limit: 1 });
-      const allBody = await store.body.query(userId, { limit: 1 });
-      if (allBody.length > 0 && recentBody.length === 0) {
-        messages.push('你已经超过3天没有记录体重了，记得定时记录哦');
-      }
-
-      // 检查严重且未解决的症状
-      const recentSymptoms = await store.symptom.query(userId, { limit: 20 });
-      const severeActive = recentSymptoms.filter(s => !s.resolvedAt && (s.severity ?? 0) >= 8);
-      if (severeActive.length > 0) {
-        const s = severeActive[0];
-        messages.push(`你之前记录的"${s.description}"看起来还比较严重，如果持续不舒服建议尽快就医`);
-      }
-
-      // 检查慢性病季节性提醒
-      const chronicConditions = await store.chronic.query(userId, { activeOnly: true });
-      const currentMonth = new Date().getMonth() + 1;
-      for (const c of chronicConditions) {
-        if (!c.seasonalPattern) continue;
-        const monthMatch = c.seasonalPattern.match(/(\d+)月/);
-        if (!monthMatch) continue;
-        const peakMonth = parseInt(monthMatch[1]);
-        // 在高峰月份前 1 个月提醒
-        if (currentMonth === (peakMonth === 1 ? 12 : peakMonth - 1)) {
-          messages.push(`你的${c.condition}通常在${peakMonth}月份容易发作，马上要进入高峰期了，注意提前做好防护`);
-        } else if (currentMonth === peakMonth) {
-          messages.push(`现在是你${c.condition}的高峰期，记得注意防护，有任何不适及时记录`);
-        }
-      }
-
-      // 只有当有实际消息时才加入结果
-      if (messages.length > 0) {
-        results.push({ userId, message: messages.join('\n') });
+      const message = await checkUser(store, userId, tasks);
+      if (message) {
+        results.push({ userId, message });
+        logger.info('[heartbeat] run userId=%s messageLen=%d', userId, message.length);
+      } else {
+        logger.debug('[heartbeat] skip userId=%s', userId);
       }
     } catch (err) {
-      logger.error('[heartbeat] user check failed userId=%s error=%s', userId, (err as Error).message);
+      logger.error('[heartbeat] check failed userId=%s error=%s', userId, (err as Error).message);
     }
   }
 

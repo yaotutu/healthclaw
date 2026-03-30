@@ -10,26 +10,28 @@ export interface HeartbeatOptions {
   store: Store;
   /** 扫描间隔（毫秒），默认 15 分钟 */
   intervalMs: number;
-  /** 发送消息的回调函数，用于向用户推送关怀消息 */
-  sendMessage: (userId: string, message: string) => Promise<void>;
+  /** 向用户发送消息的回调函数（存储 + 推送） */
+  sendToUser: (userId: string, message: string) => Promise<void>;
 }
 
 /**
  * 启动心跳调度器
- * 定期扫描所有用户的健康数据，发现异常时主动推送关怀消息
- * 调度器会在指定间隔内反复执行心跳检查：
- * 1. 读取 heartbeat.md 中的活跃任务
- * 2. 遍历所有用户进行异常检测
- * 3. 对有异常的用户通过 sendMessage 回调推送关怀消息
- * @param options 配置选项，包含 store、间隔时间和消息发送回调
+ * 定期扫描所有用户的健康数据，由 LLM 判断是否需要主动推送关怀消息
+ *
+ * 调度器工作流程：
+ * 1. 每隔 intervalMs 执行一次 tick
+ * 2. 对每个有心跳任务的用户：读取 DB 中的任务 → 收集用户上下文 → 发给 LLM 决策
+ * 3. 对 LLM 决定 run 的用户，通过 sendToUser 回调推送关怀消息
+ *
+ * @param options 配置选项
  * @returns 包含 stop 方法的对象，用于停止调度器
  */
 export function startHeartbeatScheduler(options: HeartbeatOptions): { stop: () => void } {
-  const { store, intervalMs, sendMessage } = options;
+  const { store, intervalMs, sendToUser } = options;
 
   /**
    * 单次心跳检查
-   * 执行心跳任务，获取异常用户列表并逐个推送消息
+   * 执行 runHeartbeat 获取 LLM 决策结果，逐个推送关怀消息
    */
   const tick = async () => {
     try {
@@ -38,7 +40,7 @@ export function startHeartbeatScheduler(options: HeartbeatOptions): { stop: () =
       // 逐个发送关怀消息
       for (const result of results) {
         try {
-          await sendMessage(result.userId, result.message);
+          await sendToUser(result.userId, result.message);
           logger.info('[heartbeat] sent userId=%s', result.userId);
         } catch (err) {
           logger.error('[heartbeat] send failed userId=%s error=%s', result.userId, (err as Error).message);

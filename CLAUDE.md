@@ -13,6 +13,7 @@ src/
 │   ├── chronic/
 │   ├── diet/
 │   ├── exercise/
+│   ├── heartbeat/              #   心跳任务管理
 │   ├── medication/
 │   ├── memory/
 │   ├── observation/
@@ -42,8 +43,12 @@ src/
 │   └── index.ts              # Store 统一入口（外观模式，聚合各 features 的 store）
 ├── heartbeat/                # 心跳机制
 │   ├── scheduler.ts          # 定时调度器（15分钟）
-│   ├── runner.ts             # 异常检测和关怀消息生成
-│   ├── heartbeat.md          # 任务配置文件
+│   ├── runner.ts             # LLM 驱动的心跳检查（读取 DB 任务 + 用户上下文 → LLM 决策）
+│   └── index.ts              # 导出
+├── cron/                     # 定时任务系统
+│   ├── types.ts              # 数据结构定义
+│   ├── service.ts            # CronService（调度、持久化、执行）
+│   ├── tools.ts              # LLM 工具（创建/查看/删除任务）
 │   └── index.ts              # 导出
 ├── channels/                 # 通道适配器
 │   ├── types.ts              # 类型定义
@@ -83,6 +88,7 @@ src/
 | chronic | 手写 | add/update/deactivate, 无 timestamp 列 |
 | memory | 手写 | save/query/remove/getAll |
 | profile | 手写 | get/upsert |
+| heartbeat | 手写 | getEnabledTasks/listAll/add/remove/toggle |
 
 ## 通道
 
@@ -233,6 +239,7 @@ logger.error('[app] fatal error=%s', err.message);
 | `memories` | 长期记忆（用户偏好、反馈、重要事实） |
 | `conversation_summaries` | 对话摘要（短期记忆） |
 | `logs` | 应用日志 |
+| `heartbeat_tasks` | 用户心跳任务 |
 
 ### Agent 工具
 
@@ -279,6 +286,16 @@ logger.error('[app] fatal error=%s', err.message);
 - `query_memories` - 查询长期记忆
 - `delete_memory` - 删除长期记忆
 
+#### 心跳任务工具
+- `add_heartbeat_task` - 添加心跳检查任务
+- `list_heartbeat_tasks` - 查看心跳任务
+- `remove_heartbeat_task` - 删除心跳任务
+
+#### 定时任务工具
+- `schedule_cron` - 创建定时任务
+- `list_cron_jobs` - 查看定时任务
+- `remove_cron_job` - 删除定时任务
+
 **设计原则**: 工具只提供数据存储功能，所有分析和决策由 AI 完成。
 
 ### 提示词架构
@@ -299,12 +316,22 @@ logger.error('[app] fatal error=%s', err.message);
 
 ### 心跳机制
 
-借鉴 nanobot 设计，每15分钟扫描所有用户数据：
-- 睡眠不足4小时 → 主动关心
-- 超过3天未记录体重 → 提醒记录
-- 严重未解决症状 → 建议就医
+每 15 分钟扫描所有用户，LLM 驱动决策：
+1. 从 `heartbeat_tasks` 表读取每个用户的心跳任务（自然语言提示词）
+2. 收集用户完整上下文（档案、最近记录、活跃症状、慢性病、记忆等）
+3. 将任务 + 上下文发给 LLM，由 LLM 决定是否需要主动发送关怀消息
+4. 通过 WebSocket/QQ 通道推送消息给用户
 
-任务配置在 `src/heartbeat/heartbeat.md`，可随时编辑。
+用户可通过对话管理心跳任务：`add_heartbeat_task`、`list_heartbeat_tasks`、`remove_heartbeat_task`。
+
+### 定时任务系统
+
+LLM 可在对话中为用户创建定时任务，支持三种调度模式：
+- `everySeconds`: 周期性（如 3600=每小时）
+- `cronExpr`: cron 表达式（如 "0 9 * * *"=每天9点）
+- `at`: 一次性（指定时间执行后自动删除）
+
+任务通过 `CronService` 管理，持久化到 JSON 文件，重启后自动恢复。
 
 ### 记忆系统
 

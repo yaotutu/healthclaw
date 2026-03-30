@@ -5,8 +5,9 @@ import { Store } from './store';
 import { createHealthAgent } from './agent';
 import { createSessionManager, generateConversationSummary } from './session';
 import { createMessageHandler, createWebSocketChannel, createQQChannel } from './channels';
-import type { ChannelAdapter } from './channels';
+import type { ChannelAdapter, DeliverableChannel } from './channels';
 import { startHeartbeatScheduler } from './heartbeat';
+import { CronService } from './cron/service';
 import { logger, dbLogWriter } from './infrastructure/logger';
 
 async function main() {
@@ -19,11 +20,73 @@ async function main() {
   dbLogWriter.init(store.logs);
   logger.info('[app] database initialized path=%s', config.dbPath);
 
-  // 2. 创建 Agent 工厂（异步函数，因为需要查询用户档案）
-  const createAgent = async (userId: string, messages: Parameters<typeof createHealthAgent>[0]['messages']) =>
-    createHealthAgent({ store, userId, messages });
+  // 2. 定时任务服务（需要在 Agent 工厂之前初始化，因为 Agent 需要注入 cron 工具）
+  const cronService = new CronService({
+    storePath: config.cron.storePath,
+    onJob: async (job) => {
+      const userId = job.payload.to;
+      if (!userId) return;
 
-  // 3. 会话管理（包含过期时的对话摘要生成回调）
+      logger.info('[cron] executing id=%s name=%s userId=%s', job.id, job.name, userId);
+
+      // 标记 cron 上下文，防止递归创建任务
+      cronService.setCronContext(true);
+      try {
+        // 为目标用户创建 Agent 并执行任务
+        const agent = await createHealthAgent({
+          store,
+          userId,
+          channel: job.payload.channel || 'websocket',
+          cronService,
+        });
+
+        // 收集 Agent 事件流
+        const events: any[] = [];
+        agent.subscribe((event: any) => {
+          events.push(event);
+        });
+
+        // 发送任务消息给 Agent
+        await agent.prompt(job.payload.message);
+
+        // 如果需要推送回复给用户
+        if (job.payload.deliver) {
+          // 从事件流中提取 Agent 响应文本
+          let responseText = '';
+          for (let i = events.length - 1; i >= 0; i--) {
+            if (events[i].type === 'done' && events[i].message) {
+              responseText = events[i].message.content
+                .filter((c: any) => c.type === 'text')
+                .map((c: any) => c.text)
+                .join('');
+              break;
+            }
+          }
+
+          if (responseText) {
+            // 存储到消息历史
+            await store.messages.appendMessage(userId, {
+              role: 'assistant',
+              content: responseText,
+              timestamp: Date.now(),
+            });
+            // 主动推送给用户
+            await sendToUser(userId, responseText);
+          }
+        }
+      } catch (err) {
+        logger.error('[cron] execute failed id=%s error=%s', job.id, (err as Error).message);
+      } finally {
+        cronService.setCronContext(false);
+      }
+    },
+  });
+
+  // 3. 创建 Agent 工厂（注入 cronService 使 Agent 拥有定时任务工具）
+  const createAgent = async (userId: string, messages: Parameters<typeof createHealthAgent>[0]['messages']) =>
+    createHealthAgent({ store, userId, messages, cronService });
+
+  // 4. 会话管理（包含过期时的对话摘要生成回调）
   const sessions = createSessionManager({
     createAgent,
     store,
@@ -49,23 +112,48 @@ async function main() {
     },
   });
 
-  // 4. 消息处理器
+  // 5. 消息处理器
   const handleMessage = createMessageHandler({ sessions, store });
 
-  // 5. 收集所有通道（用于关闭）
+  // 6. 收集所有通道（用于关闭）
   const channels: ChannelAdapter[] = [];
+  // 收集支持主动推送的通道
+  const deliverableChannels: DeliverableChannel[] = [];
 
-  // 6. 创建 HTTP 服务器
+  /**
+   * 向用户主动推送消息
+   * 尝试所有支持主动推送的通道，第一个成功即停止
+   * @param userId 用户ID
+   * @param text 消息内容
+   */
+  const sendToUser = async (userId: string, text: string): Promise<boolean> => {
+    for (const channel of deliverableChannels) {
+      try {
+        const delivered = await channel.sendToUser(userId, text);
+        if (delivered) {
+          logger.info('[app] message delivered userId=%s channel=%s', userId, channel.name);
+          return true;
+        }
+      } catch (err) {
+        logger.error('[app] send failed userId=%s channel=%s error=%s', userId, channel.name, (err as Error).message);
+      }
+    }
+    logger.info('[app] no active channel for userId=%s', userId);
+    return false;
+  };
+
+  // 7. 创建 HTTP 服务器
   const server = http.createServer();
 
-  // 7. 启动 WebSocket 通道
+  // 8. 启动 WebSocket 通道
   const wsChannel = createWebSocketChannel({ server, path: '/ws' });
   wsChannel.onMessage(handleMessage);
   wsChannel.onAbort((userId) => sessions.abort(userId));
   await wsChannel.start();
   channels.push(wsChannel);
+  deliverableChannels.push(wsChannel);
 
-  // 8. 启动 QQ Bot 通道（可选）
+  // 9. 启动 QQ Bot 通道（可选）
   if (config.qq.appId && config.qq.appSecret) {
     try {
       const qqChannel = createQQChannel({
@@ -75,34 +163,39 @@ async function main() {
       qqChannel.onMessage(handleMessage);
       await qqChannel.start();
       channels.push(qqChannel);
+      deliverableChannels.push(qqChannel);
       logger.info('[app] qq bot started');
     } catch (err) {
       logger.error('[app] qq bot failed to start: %s', (err as Error).message);
     }
   }
 
-  // 9. 监听端口
+  // 10. 监听端口
   server.listen(config.port, () => {
     logger.info('[app] server started port=%d', config.port);
     logger.info('[app] websocket ws://localhost:%d/ws', config.port);
   });
 
-  // 10. 初始化心跳调度器，每15分钟检查一次用户健康数据
+  // 11. 启动心跳调度器（LLM 驱动决策 + 主动推送）
   const heartbeat = startHeartbeatScheduler({
     store,
-    intervalMs: 15 * 60 * 1000,
-    sendMessage: async (userId, message) => {
+    intervalMs: config.heartbeat.intervalMs,
+    sendToUser: async (userId, message) => {
       // 将关怀消息存入消息历史
       await store.messages.appendMessage(userId, {
         role: 'assistant',
         content: message,
         timestamp: Date.now(),
       });
-      logger.info('[heartbeat] message stored userId=%s', userId);
+      // 主动推送给用户
+      await sendToUser(userId, message);
     },
   });
 
-  // 11. 优雅关闭
+  // 12. 启动定时任务服务
+  await cronService.start();
+
+  // 13. 优雅关闭
   const shutdown = async (signal: string) => {
     logger.info('[app] received %s, shutting down...', signal);
 
@@ -112,23 +205,26 @@ async function main() {
     }, config.shutdownTimeout);
 
     try {
-      // 0. 停止心跳调度器
+      // 停止定时任务服务
+      cronService.stop();
+
+      // 停止心跳调度器
       heartbeat.stop();
 
-      // 1. 停止所有通道
+      // 停止所有通道
       for (const channel of channels) {
         await channel.stop();
       }
 
-      // 2. 关闭 HTTP 服务器 (promisified)
+      // 关闭 HTTP 服务器 (promisified)
       await new Promise<void>((resolve) => {
         server.close(() => resolve());
       });
 
-      // 3. 清理会话
+      // 清理会话
       sessions.close();
 
-      // 4. 关闭存储
+      // 关闭存储
       store.close();
 
       clearTimeout(timeout);

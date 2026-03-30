@@ -6,6 +6,7 @@ import type { Store, Message } from '../store';
 import { logger } from '../infrastructure/logger';
 import { assembleSystemPrompt } from '../prompts/assembler';
 import { createTools } from './tools';
+import type { CronService } from '../cron/service';
 
 /**
  * 将存储层消息转换为 Agent 框架所需的消息格式
@@ -113,6 +114,10 @@ export interface CreateAgentOptions {
   store: Store;
   userId: string;
   messages?: Message[];
+  /** 通道名称，用于定时任务推送 */
+  channel?: string;
+  /** 定时任务服务实例，传入后 Agent 将拥有定时任务工具 */
+  cronService?: CronService;
 }
 
 /**
@@ -123,10 +128,10 @@ export interface CreateAgentOptions {
  * @returns 初始化完成的 Agent 实例
  */
 export const createHealthAgent = async (options: CreateAgentOptions) => {
-  const { store, userId, messages = [] } = options;
+  const { store, userId, messages = [], channel = 'websocket', cronService } = options;
 
   const agentModel = getModel(config.llm.provider as any, config.llm.model);
-  const tools = createTools(store, userId);
+  const tools = createTools(store, userId, channel, cronService);
   // 工具列表：包含所有记录、查询、档案、症状解决、记忆和用药工具
   const toolList = [
     // 记录工具：各类健康数据的录入
@@ -164,6 +169,10 @@ export const createHealthAgent = async (options: CreateAgentOptions) => {
     tools.saveMemory,
     tools.queryMemories,
     tools.deleteMemory,
+    // 心跳任务工具：添加、查看、删除心跳检查任务
+    tools.addHeartbeatTask,
+    tools.listHeartbeatTasks,
+    tools.removeHeartbeatTask,
   ];
 
   // 使用 assembler 动态组装系统提示词
