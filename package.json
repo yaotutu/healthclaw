@@ -7,7 +7,10 @@
   "scripts": {
     "server": "bun run src/main.ts",
     "build": "tsc",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "db:generate": "drizzle-kit generate",
+    "db:push": "drizzle-kit push",
+    "db:migrate": "drizzle-kit migrate"
   },
   "devDependencies": {
     "@types/node": "^25.5.0",
