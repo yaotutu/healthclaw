@@ -10,7 +10,11 @@ import {
   waterRecords,
   messages,
   memories,
-  conversationSummaries
+  conversationSummaries,
+  // 以下三个表是新增的健康记录表，需要注册到 Drizzle 以支持 Kit 迁移
+  medicationRecords,     // 用药记录表
+  chronicConditions,     // 慢性病记录表
+  healthObservations     // 健康观察记录表
 } from './schema';
 
 /**
@@ -30,6 +34,10 @@ export interface CreateDbResult {
     messages: typeof messages;
     memories: typeof memories;
     conversationSummaries: typeof conversationSummaries;
+    // 新增三个健康记录表的类型定义，用于 TypeScript 类型推断
+    medicationRecords: typeof medicationRecords;     // 用药记录
+    chronicConditions: typeof chronicConditions;     // 慢性病记录
+    healthObservations: typeof healthObservations;   // 健康观察记录
   }>>;
   sqlite: Database;
 }
@@ -53,7 +61,11 @@ export const createDb = (dbPath: string): CreateDbResult => {
       waterRecords,
       messages,
       memories,
-      conversationSummaries
+      conversationSummaries,
+      // 注册新增的三个表到 Drizzle schema，使 Drizzle Kit 能够识别并迁移这些表
+      medicationRecords,     // 用药记录表
+      chronicConditions,     // 慢性病记录表
+      healthObservations     // 健康观察记录表
     }
   });
   return { db, sqlite };
