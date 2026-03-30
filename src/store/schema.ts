@@ -48,7 +48,10 @@ export const bodyRecords = sqliteTable('body_records', {
   note: text('note'),
   /** 记录时间戳 */
   timestamp: integer('timestamp').notNull(),
-});
+}, (table) => [
+  /** 用户ID索引，加速按用户查询身体数据记录 */
+  index('idx_body_user_id').on(table.userId),
+]);
 
 /**
  * 饮食记录表
@@ -78,7 +81,10 @@ export const dietRecords = sqliteTable('diet_records', {
   note: text('note'),
   /** 记录时间戳 */
   timestamp: integer('timestamp').notNull(),
-});
+}, (table) => [
+  /** 用户ID索引，加速按用户查询饮食记录 */
+  index('idx_diet_user_id').on(table.userId),
+]);
 
 /**
  * 症状记录表
@@ -107,7 +113,10 @@ export const symptomRecords = sqliteTable('symptom_records', {
   note: text('note'),
   /** 记录时间戳 */
   timestamp: integer('timestamp').notNull(),
-});
+}, (table) => [
+  /** 用户ID索引，加速按用户查询症状记录 */
+  index('idx_symptom_user_id').on(table.userId),
+]);
 
 /**
  * 运动记录表
@@ -135,7 +144,10 @@ export const exerciseRecords = sqliteTable('exercise_records', {
   note: text('note'),
   /** 记录时间戳 */
   timestamp: integer('timestamp').notNull(),
-});
+}, (table) => [
+  /** 用户ID索引，加速按用户查询运动记录 */
+  index('idx_exercise_user_id').on(table.userId),
+]);
 
 /**
  * 睡眠记录表
@@ -161,7 +173,10 @@ export const sleepRecords = sqliteTable('sleep_records', {
   note: text('note'),
   /** 记录时间戳 */
   timestamp: integer('timestamp').notNull(),
-});
+}, (table) => [
+  /** 用户ID索引，加速按用户查询睡眠记录 */
+  index('idx_sleep_user_id').on(table.userId),
+]);
 
 /**
  * 饮水记录表
@@ -179,7 +194,10 @@ export const waterRecords = sqliteTable('water_records', {
   note: text('note'),
   /** 记录时间戳 */
   timestamp: integer('timestamp').notNull(),
-});
+}, (table) => [
+  /** 用户ID索引，加速按用户查询饮水记录 */
+  index('idx_water_user_id').on(table.userId),
+]);
 
 /**
  * 用药记录表
@@ -205,7 +223,10 @@ export const medicationRecords = sqliteTable('medication_records', {
   note: text('note'),
   /** 记录时间戳 */
   timestamp: integer('timestamp').notNull(),
-});
+}, (table) => [
+  /** 用户ID索引，加速按用户查询用药记录 */
+  index('idx_medication_user_id').on(table.userId),
+]);
 
 /**
  * 慢性病记录表
@@ -233,7 +254,10 @@ export const chronicConditions = sqliteTable('chronic_conditions', {
   createdAt: integer('created_at').notNull(),
   /** 更新时间戳 */
   updatedAt: integer('updated_at').notNull(),
-});
+}, (table) => [
+  /** 用户ID索引，加速按用户查询慢性病记录 */
+  index('idx_chronic_user_id').on(table.userId),
+]);
 
 /**
  * 健康观察记录表
@@ -251,7 +275,10 @@ export const healthObservations = sqliteTable('health_observations', {
   tags: text('tags'),
   /** 记录时间戳 */
   timestamp: integer('timestamp').notNull(),
-});
+}, (table) => [
+  /** 用户ID索引，加速按用户查询健康观察记录 */
+  index('idx_observation_user_id').on(table.userId),
+]);
 
 /**
  * 消息历史表
@@ -271,7 +298,10 @@ export const messages = sqliteTable('messages', {
   metadata: text('metadata'),
   /** 消息时间戳 */
   timestamp: integer('timestamp').notNull(),
-});
+}, (table) => [
+  /** 用户ID索引，加速按用户查询消息历史 */
+  index('idx_messages_user_id').on(table.userId),
+]);
 
 /**
  * 记忆表
@@ -406,3 +436,34 @@ export const heartbeatTasks = sqliteTable('heartbeat_tasks', {
 export type HeartbeatTask = typeof heartbeatTasks.$inferSelect;
 /** 心跳任务插入类型 */
 export type NewHeartbeatTask = typeof heartbeatTasks.$inferInsert;
+
+/**
+ * 应用日志表
+ * 存储应用运行日志（info 及以上级别），写入数据库而非控制台输出
+ */
+export const logs = sqliteTable('logs', {
+  /** 日志ID，自增主键 */
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  /** 日志级别数值 */
+  level: integer('level').notNull(),
+  /** 日志级别名称（info/warn/error） */
+  levelName: text('level_name').notNull(),
+  /** 日志消息 */
+  msg: text('msg').notNull(),
+  /** 日志时间（ISO 格式字符串） */
+  time: text('time').notNull(),
+  /** 附加数据 JSON */
+  data: text('data'),
+  /** 模块名 */
+  module: text('module'),
+}, (table) => [
+  /** 日志时间索引，加速按时间范围查询日志 */
+  index('idx_logs_time').on(table.time),
+  /** 模块名索引，加速按模块过滤日志 */
+  index('idx_logs_module').on(table.module),
+  /** 日志级别索引，加速按级别过滤日志 */
+  index('idx_logs_level').on(table.level),
+]);
+
+/** 日志查询结果类型 */
+export type LogRecord = typeof logs.$inferSelect;
