@@ -10,44 +10,9 @@ import { createObservationTools } from '../features/observation/tools';
 import { createSymptomTools } from '../features/symptom/tools';
 import { createDietTools } from '../features/diet/tools';
 import { createMedicationTools } from '../features/medication/tools';
+import { createChronicTools } from '../features/chronic/tools';
 
 // ==================== 记录工具参数 Schema ====================
-
-/**
- * 记录慢性病的参数 Schema
- */
-const RecordChronicConditionParamsSchema = Type.Object({
-  condition: Type.String({ description: '慢性病名称，如"鼻炎"、"偏头痛"' }),
-  severity: Type.Optional(Type.String({ description: '严重程度：轻度/中度/重度' })),
-  seasonalPattern: Type.Optional(Type.String({ description: '季节模式，如"9月份严重（秋季过敏）"' })),
-  triggers: Type.Optional(Type.Array(Type.String(), { description: '触发因素列表' })),
-  notes: Type.Optional(Type.String({ description: '备注' })),
-});
-
-/**
- * 更新慢性病的参数 Schema
- */
-const UpdateChronicConditionParamsSchema = Type.Object({
-  conditionId: Type.Number({ description: '慢性病记录ID' }),
-  severity: Type.Optional(Type.String({ description: '严重程度：轻度/中度/重度' })),
-  seasonalPattern: Type.Optional(Type.String({ description: '季节模式' })),
-  triggers: Type.Optional(Type.Array(Type.String(), { description: '触发因素列表' })),
-  notes: Type.Optional(Type.String({ description: '备注' })),
-});
-
-/**
- * 查询慢性病的参数 Schema
- */
-const QueryChronicConditionsParamsSchema = Type.Object({
-  activeOnly: Type.Optional(Type.Boolean({ description: '是否只查询活跃的慢性病，默认true' })),
-});
-
-/**
- * 停用慢性病追踪的参数 Schema
- */
-const DeactivateChronicConditionParamsSchema = Type.Object({
-  conditionId: Type.Number({ description: '慢性病记录ID' }),
-});
 
 /**
  * 查询食物-症状关联分析的参数 Schema
@@ -118,10 +83,6 @@ const UpdateProfileParamsSchema = Type.Object({
 
 // ==================== 工具类型定义 ====================
 
-type RecordChronicConditionParams = typeof RecordChronicConditionParamsSchema;
-type UpdateChronicConditionParams = typeof UpdateChronicConditionParamsSchema;
-type QueryChronicConditionsParams = typeof QueryChronicConditionsParamsSchema;
-type DeactivateChronicConditionParams = typeof DeactivateChronicConditionParamsSchema;
 type QueryFoodSymptomCorrelationParams = typeof QueryFoodSymptomCorrelationParamsSchema;
 type QueryHealthPatternsParams = typeof QueryHealthPatternsParamsSchema;
 type SaveMemoryParams = typeof SaveMemoryParamsSchema;
@@ -162,99 +123,8 @@ export const createTools = (store: Store, userId: string) => {
   // 用药工具已迁移至 features/medication/tools.ts
   const medicationTools = createMedicationTools(store.medication, userId);
 
-  /**
-   * 记录慢性病工具
-   * 添加用户的新慢性病追踪记录
-   */
-  const recordChronicCondition: AgentTool<RecordChronicConditionParams> = {
-    name: 'record_chronic_condition',
-    label: '记录慢性病',
-    description: '添加用户的慢性病记录，如鼻炎、偏头痛等，用于长期追踪。',
-    parameters: RecordChronicConditionParamsSchema,
-    execute: async (_toolCallId, params, _signal) => {
-      const record = await store.chronic.add(userId, {
-        condition: params.condition,
-        severity: params.severity,
-        seasonalPattern: params.seasonalPattern,
-        triggers: params.triggers,
-        notes: params.notes,
-      });
-
-      return {
-        content: [{ type: 'text', text: `已记录慢性病: ${record.condition}${record.severity ? ` (${record.severity})` : ''}` }],
-        details: { id: record.id, record },
-      };
-    },
-  };
-
-  /**
-   * 更新慢性病工具
-   * 更新指定慢性病的信息（严重程度、触发因素等）
-   */
-  const updateChronicCondition: AgentTool<UpdateChronicConditionParams> = {
-    name: 'update_chronic_condition',
-    label: '更新慢性病',
-    description: '更新用户的慢性病信息，如严重程度、触发因素等。',
-    parameters: UpdateChronicConditionParamsSchema,
-    execute: async (_toolCallId, params, _signal) => {
-      const record = await store.chronic.update(userId, params.conditionId, {
-        severity: params.severity,
-        seasonalPattern: params.seasonalPattern,
-        triggers: params.triggers,
-        notes: params.notes,
-      });
-
-      return {
-        content: [{ type: 'text', text: `已更新慢性病: ${record.condition}` }],
-        details: { record },
-      };
-    },
-  };
-
-  /**
-   * 查询慢性病工具
-   * 查询用户的慢性病列表
-   */
-  const queryChronicConditions: AgentTool<QueryChronicConditionsParams> = {
-    name: 'query_chronic_conditions',
-    label: '查询慢性病',
-    description: '查询用户的慢性病列表，默认只显示活跃的慢性病。',
-    parameters: QueryChronicConditionsParamsSchema,
-    execute: async (_toolCallId, params, _signal) => {
-      const records = await store.chronic.query(userId, {
-        activeOnly: params.activeOnly ?? true,
-      });
-
-      // 解析 triggers JSON 字段
-      const parsed = records.map(r => ({
-        ...r,
-        triggers: r.triggers ? JSON.parse(r.triggers) : [],
-      }));
-
-      return {
-        content: [{ type: 'text', text: JSON.stringify({ records: parsed, count: parsed.length }) }],
-        details: { records: parsed, count: parsed.length },
-      };
-    },
-  };
-
-  /**
-   * 停用慢性病追踪工具
-   * 将指定慢性病标记为不再追踪
-   */
-  const deactivateChronicCondition: AgentTool<DeactivateChronicConditionParams> = {
-    name: 'deactivate_chronic_condition',
-    label: '停用慢性病追踪',
-    description: '将指定慢性病标记为不再追踪（如已治愈）。',
-    parameters: DeactivateChronicConditionParamsSchema,
-    execute: async (_toolCallId, params, _signal) => {
-      const record = await store.chronic.deactivate(userId, params.conditionId);
-      return {
-        content: [{ type: 'text', text: `已停用慢性病追踪: ${record.condition}` }],
-        details: { record },
-      };
-    },
-  };
+  // 慢性病工具已迁移至 features/chronic/tools.ts
+  const chronicTools = createChronicTools(store.chronic, userId);
 
   /**
    * 查询食物-症状关联分析工具
@@ -449,10 +319,10 @@ export const createTools = (store: Store, userId: string) => {
     recordMedication: medicationTools.recordMedication,
     queryMedicationRecords: medicationTools.queryMedicationRecords,
     stopMedication: medicationTools.stopMedication,
-    recordChronicCondition,
-    updateChronicCondition,
-    queryChronicConditions,
-    deactivateChronicCondition,
+    recordChronicCondition: chronicTools.recordChronicCondition,
+    updateChronicCondition: chronicTools.updateChronicCondition,
+    queryChronicConditions: chronicTools.queryChronicConditions,
+    deactivateChronicCondition: chronicTools.deactivateChronicCondition,
     queryFoodSymptomCorrelation,
     queryHealthPatterns,
     recordObservation: observationTools.recordObservation,

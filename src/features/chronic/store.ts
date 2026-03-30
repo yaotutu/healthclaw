@@ -1,7 +1,12 @@
-import { eq, desc, and, isNull } from 'drizzle-orm';
-import type { Db } from './db';
-import { chronicConditions, type ChronicCondition, type NewChronicCondition } from './schema';
-import { logger } from '../infrastructure/logger';
+/**
+ * 慢性病记录存储模块 - 从 src/store/chronic.ts 迁移至功能域
+ * 保留自定义实现（add、update、query with activeOnly、deactivate），不使用通用 record-store 工厂
+ * 因为慢性病没有 timestamp 列，使用 updatedAt 进行排序
+ */
+import { eq, desc, and } from 'drizzle-orm';
+import type { Db } from '../../store/db';
+import { chronicConditions, type ChronicCondition, type NewChronicCondition } from '../../store/schema';
+import { logger } from '../../infrastructure/logger';
 
 /**
  * 慢性病记录数据接口
