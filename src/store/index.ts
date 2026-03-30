@@ -10,7 +10,7 @@ import { createWaterStore, type WaterStore } from '../features/water/store';
 import { createMemoryStore, type MemoryStore } from './memory';
 import { createSummaryStore, type SummaryStore } from './summary';
 import { createLogStore, type LogStore } from './logs';
-import { createMedicationStore, type MedicationStore } from './medication';
+import { createMedicationStore, type MedicationStore } from '../features/medication/store';
 import { createChronicStore, type ChronicStore } from './chronic';
 import { createAnalysisStore, type AnalysisStore } from './analysis';
 import { createObservationStore, type ObservationStore } from '../features/observation/store';
