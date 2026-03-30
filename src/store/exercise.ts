@@ -1,19 +1,10 @@
-import { eq, desc, and, gte, lte } from 'drizzle-orm';
 import type { Db } from './db';
-import { exerciseRecords, type ExerciseRecord, type NewExerciseRecord } from './schema';
-import { logger } from '../infrastructure/logger';
+import { exerciseRecords, type ExerciseRecord } from './schema';
+import { createRecordStore, type QueryOptions } from './record-store';
 
 /**
- * 查询选项接口
- */
-export interface QueryOptions {
-  startDate?: number;
-  endDate?: number;
-  limit?: number;
-}
-
-/**
- * 运动记录数据接口
+ * 运动记录的数据接口
+ * 用于工具层传入数据，不含 userId 和 id
  */
 export interface ExerciseRecordData {
   type: string;
@@ -32,16 +23,13 @@ export interface ExerciseRecordData {
  * @param db Drizzle ORM 数据库实例
  */
 export const createExerciseStore = (db: Db) => {
-  /**
-   * 记录运动
-   * 创建一条新的运动记录
-   * @param userId 用户ID
-   * @param data 运动数据（类型、时长、消耗热量等）
-   * @returns 创建成功的记录
-   */
-  const record = async (userId: string, data: ExerciseRecordData): Promise<ExerciseRecord> => {
-    const now = Date.now();
-    const recordData: NewExerciseRecord = {
+  // 使用通用工厂创建标准 record/query/getLatest 方法
+  const store = createRecordStore({
+    db,
+    table: exerciseRecords,
+    label: 'exercise',
+    // 字段映射：把 ExerciseRecordData 转换为表插入格式
+    mapRecord: (userId, data: ExerciseRecordData, now) => ({
       userId,
       type: data.type,
       duration: data.duration,
@@ -51,41 +39,10 @@ export const createExerciseStore = (db: Db) => {
       distance: data.distance,
       note: data.note,
       timestamp: data.timestamp ?? now,
-    };
+    }),
+  });
 
-    const result = await db.insert(exerciseRecords).values(recordData).returning();
-    logger.info('[store:exercise] recorded userId=%s type=%s duration=%s calories=%s', userId, result[0].type, result[0].duration, result[0].calories);
-    return result[0];
-  };
-
-  /**
-   * 查询运动记录历史
-   * 支持按时间范围筛选和限制返回数量
-   * @param userId 用户ID
-   * @param options 查询选项（时间范围、限制数量）
-   * @returns 运动记录列表，按时间倒序排列
-   */
-  const query = async (userId: string, options: QueryOptions = {}): Promise<ExerciseRecord[]> => {
-    const { startDate, endDate, limit } = options;
-
-    // 构建过滤条件，将用户ID与时间范围条件合并
-    const conditions = [eq(exerciseRecords.userId, userId)];
-    if (startDate !== undefined) {
-      conditions.push(gte(exerciseRecords.timestamp, startDate));
-    }
-    if (endDate !== undefined) {
-      conditions.push(lte(exerciseRecords.timestamp, endDate));
-    }
-
-    return db
-      .select()
-      .from(exerciseRecords)
-      .where(and(...conditions))
-      .orderBy(desc(exerciseRecords.timestamp))
-      .limit(limit ?? 100);
-  };
-
-  return { record, query };
+  return store;
 };
 
 /**

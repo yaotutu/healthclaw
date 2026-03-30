@@ -1,19 +1,10 @@
-import { eq, desc, and, gte, lte } from 'drizzle-orm';
 import type { Db } from './db';
 import { bodyRecords, type BodyRecord, type NewBodyRecord } from './schema';
-import { logger } from '../infrastructure/logger';
+import { createRecordStore, type QueryOptions } from './record-store';
 
 /**
- * 查询选项接口
- */
-export interface QueryOptions {
-  startDate?: number;
-  endDate?: number;
-  limit?: number;
-}
-
-/**
- * 身体数据记录数据接口
+ * 身体数据记录的数据接口
+ * 用于工具层传入数据，不含 userId 和 id
  */
 export interface BodyRecordData {
   weight?: number;
@@ -26,76 +17,27 @@ export interface BodyRecordData {
 /**
  * 创建身体数据存储模块
  * 提供体重、体脂率等身体数据的记录和查询功能
+ * 基于通用 record store，额外提供 getLatest 方法获取最新体重
  * @param db Drizzle ORM 数据库实例
  */
 export const createBodyStore = (db: Db) => {
-  /**
-   * 记录身体数据
-   * 创建一条新的身体指标记录
-   * @param userId 用户ID
-   * @param data 身体数据（体重、体脂率、BMI等）
-   * @returns 创建成功的记录
-   */
-  const record = async (userId: string, data: BodyRecordData): Promise<BodyRecord> => {
-    const now = Date.now();
-    const recordData: NewBodyRecord = {
+  // 使用通用工厂创建标准 record/query/getLatest 方法
+  const store = createRecordStore({
+    db,
+    table: bodyRecords,
+    label: 'body',
+    // 字段映射：把 BodyRecordData 转换为 NewBodyRecord 格式
+    mapRecord: (userId, data: BodyRecordData, now) => ({
       userId,
       weight: data.weight,
       bodyFat: data.bodyFat,
       bmi: data.bmi,
       note: data.note,
       timestamp: data.timestamp ?? now,
-    };
+    }),
+  });
 
-    const result = await db.insert(bodyRecords).values(recordData).returning();
-    logger.info('[store:body] recorded userId=%s weight=%s bodyFat=%s', userId, result[0].weight, result[0].bodyFat);
-    return result[0];
-  };
-
-  /**
-   * 查询身体数据历史
-   * 支持按时间范围筛选和限制返回数量
-   * @param userId 用户ID
-   * @param options 查询选项（时间范围、限制数量）
-   * @returns 身体数据记录列表，按时间倒序排列
-   */
-  const query = async (userId: string, options: QueryOptions = {}): Promise<BodyRecord[]> => {
-    const { startDate, endDate, limit } = options;
-
-    // 构建过滤条件，将用户ID与时间范围条件合并
-    const conditions = [eq(bodyRecords.userId, userId)];
-    if (startDate !== undefined) {
-      conditions.push(gte(bodyRecords.timestamp, startDate));
-    }
-    if (endDate !== undefined) {
-      conditions.push(lte(bodyRecords.timestamp, endDate));
-    }
-
-    return db
-      .select()
-      .from(bodyRecords)
-      .where(and(...conditions))
-      .orderBy(desc(bodyRecords.timestamp))
-      .limit(limit ?? 100);
-  };
-
-  /**
-   * 获取用户最新的身体数据记录
-   * 用于获取当前体重等信息
-   * @param userId 用户ID
-   * @returns 最新的一条记录，如果没有则返回 undefined
-   */
-  const getLatest = async (userId: string): Promise<BodyRecord | undefined> => {
-    const results = await db
-      .select()
-      .from(bodyRecords)
-      .where(eq(bodyRecords.userId, userId))
-      .orderBy(desc(bodyRecords.timestamp))
-      .limit(1);
-    return results[0];
-  };
-
-  return { record, query, getLatest };
+  return store;
 };
 
 /**

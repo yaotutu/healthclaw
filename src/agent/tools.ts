@@ -1,6 +1,7 @@
 import { Type } from '@sinclair/typebox';
 import type { AgentTool } from '@mariozechner/pi-agent-core';
 import type { Store, UserProfile } from '../store';
+import { createQueryTool } from './tool-factory';
 
 // ==================== 记录工具参数 Schema ====================
 
@@ -168,16 +169,7 @@ const QueryObservationsParamsSchema = Type.Object({
 });
 
 // ==================== 查询工具参数 Schema ====================
-
-/**
- * 通用查询参数 Schema
- * 所有查询工具共享相同的参数结构，支持按时间范围筛选和限制返回数量
- */
-const QueryRecordsParamsSchema = Type.Object({
-  startTime: Type.Optional(Type.Number({ description: '起始时间戳（毫秒）' })),
-  endTime: Type.Optional(Type.Number({ description: '结束时间戳（毫秒）' })),
-  limit: Type.Optional(Type.Number({ description: '返回数量限制，默认10' })),
-});
+// QueryRecordsParamsSchema 已移至 tool-factory.ts 统一管理
 
 // ==================== 解决症状工具参数 Schema ====================
 
@@ -258,7 +250,6 @@ type QueryFoodSymptomCorrelationParams = typeof QueryFoodSymptomCorrelationParam
 type QueryHealthPatternsParams = typeof QueryHealthPatternsParamsSchema;
 type RecordObservationParams = typeof RecordObservationParamsSchema;
 type QueryObservationsParams = typeof QueryObservationsParamsSchema;
-type QueryRecordsParams = typeof QueryRecordsParamsSchema;
 type ResolveSymptomParams = typeof ResolveSymptomParamsSchema;
 type SaveMemoryParams = typeof SaveMemoryParamsSchema;
 type QueryMemoriesParams = typeof QueryMemoriesParamsSchema;
@@ -760,138 +751,56 @@ export const createTools = (store: Store, userId: string) => {
   };
 
   // ==================== 查询工具 ====================
+  // 6 个标准查询工具使用 createQueryTool 工厂函数生成，消除重复代码
+  // 每个 queryFn 通过箭头函数绑定 userId，只需传入 options
 
-  /**
-   * 查询身体数据记录工具
-   * 按时间范围查询用户的体重、体脂率、BMI 等身体数据历史
-   */
-  const queryBodyRecords: AgentTool<QueryRecordsParams> = {
+  /** 查询身体数据记录（体重、体脂率、BMI） */
+  const queryBodyRecords = createQueryTool({
     name: 'query_body_records',
     label: '查询身体数据',
     description: '查询用户的身体数据记录（体重、体脂率、BMI等），支持按时间范围筛选。',
-    parameters: QueryRecordsParamsSchema,
-    execute: async (_toolCallId, params, _signal) => {
-      const records = await store.body.query(userId, {
-        startDate: params.startTime,
-        endDate: params.endTime,
-        limit: params.limit,
-      });
-      return {
-        content: [{ type: 'text', text: JSON.stringify({ records, count: records.length }) }],
-        details: { records, count: records.length },
-      };
-    },
-  };
+    queryFn: (options) => store.body.query(userId, options),
+  });
 
-  /**
-   * 查询饮食记录工具
-   * 按时间范围查询用户的饮食摄入历史
-   */
-  const queryDietRecords: AgentTool<QueryRecordsParams> = {
+  /** 查询饮食记录 */
+  const queryDietRecords = createQueryTool({
     name: 'query_diet_records',
     label: '查询饮食记录',
     description: '查询用户的饮食记录，支持按时间范围筛选。',
-    parameters: QueryRecordsParamsSchema,
-    execute: async (_toolCallId, params, _signal) => {
-      const records = await store.diet.query(userId, {
-        startDate: params.startTime,
-        endDate: params.endTime,
-        limit: params.limit,
-      });
-      return {
-        content: [{ type: 'text', text: JSON.stringify({ records, count: records.length }) }],
-        details: { records, count: records.length },
-      };
-    },
-  };
+    queryFn: (options) => store.diet.query(userId, options),
+  });
 
-  /**
-   * 查询症状记录工具
-   * 按时间范围查询用户的症状/不适记录历史
-   */
-  const querySymptomRecords: AgentTool<QueryRecordsParams> = {
+  /** 查询症状记录 */
+  const querySymptomRecords = createQueryTool({
     name: 'query_symptom_records',
     label: '查询症状记录',
     description: '查询用户的症状/不适记录，支持按时间范围筛选。',
-    parameters: QueryRecordsParamsSchema,
-    execute: async (_toolCallId, params, _signal) => {
-      const records = await store.symptom.query(userId, {
-        startDate: params.startTime,
-        endDate: params.endTime,
-        limit: params.limit,
-      });
-      return {
-        content: [{ type: 'text', text: JSON.stringify({ records, count: records.length }) }],
-        details: { records, count: records.length },
-      };
-    },
-  };
+    queryFn: (options) => store.symptom.query(userId, options),
+  });
 
-  /**
-   * 查询运动记录工具
-   * 按时间范围查询用户的运动活动历史
-   */
-  const queryExerciseRecords: AgentTool<QueryRecordsParams> = {
+  /** 查询运动记录 */
+  const queryExerciseRecords = createQueryTool({
     name: 'query_exercise_records',
     label: '查询运动记录',
     description: '查询用户的运动记录，支持按时间范围筛选。',
-    parameters: QueryRecordsParamsSchema,
-    execute: async (_toolCallId, params, _signal) => {
-      const records = await store.exercise.query(userId, {
-        startDate: params.startTime,
-        endDate: params.endTime,
-        limit: params.limit,
-      });
-      return {
-        content: [{ type: 'text', text: JSON.stringify({ records, count: records.length }) }],
-        details: { records, count: records.length },
-      };
-    },
-  };
+    queryFn: (options) => store.exercise.query(userId, options),
+  });
 
-  /**
-   * 查询睡眠记录工具
-   * 按时间范围查询用户的睡眠数据历史
-   */
-  const querySleepRecords: AgentTool<QueryRecordsParams> = {
+  /** 查询睡眠记录 */
+  const querySleepRecords = createQueryTool({
     name: 'query_sleep_records',
     label: '查询睡眠记录',
     description: '查询用户的睡眠记录，支持按时间范围筛选。',
-    parameters: QueryRecordsParamsSchema,
-    execute: async (_toolCallId, params, _signal) => {
-      const records = await store.sleep.query(userId, {
-        startDate: params.startTime,
-        endDate: params.endTime,
-        limit: params.limit,
-      });
-      return {
-        content: [{ type: 'text', text: JSON.stringify({ records, count: records.length }) }],
-        details: { records, count: records.length },
-      };
-    },
-  };
+    queryFn: (options) => store.sleep.query(userId, options),
+  });
 
-  /**
-   * 查询饮水记录工具
-   * 按时间范围查询用户的饮水量历史
-   */
-  const queryWaterRecords: AgentTool<QueryRecordsParams> = {
+  /** 查询饮水记录 */
+  const queryWaterRecords = createQueryTool({
     name: 'query_water_records',
     label: '查询饮水记录',
     description: '查询用户的饮水记录，支持按时间范围筛选。',
-    parameters: QueryRecordsParamsSchema,
-    execute: async (_toolCallId, params, _signal) => {
-      const records = await store.water.query(userId, {
-        startDate: params.startTime,
-        endDate: params.endTime,
-        limit: params.limit,
-      });
-      return {
-        content: [{ type: 'text', text: JSON.stringify({ records, count: records.length }) }],
-        details: { records, count: records.length },
-      };
-    },
-  };
+    queryFn: (options) => store.water.query(userId, options),
+  });
 
   // ==================== 症状解决工具 ====================
 

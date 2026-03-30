@@ -1,19 +1,10 @@
-import { eq, desc, and, gte, lte } from 'drizzle-orm';
 import type { Db } from './db';
-import { waterRecords, type WaterRecord, type NewWaterRecord } from './schema';
-import { logger } from '../infrastructure/logger';
+import { waterRecords, type WaterRecord } from './schema';
+import { createRecordStore, type QueryOptions } from './record-store';
 
 /**
- * 查询选项接口
- */
-export interface QueryOptions {
-  startDate?: number;
-  endDate?: number;
-  limit?: number;
-}
-
-/**
- * 饮水记录数据接口
+ * 饮水记录的数据接口
+ * 用于工具层传入数据，不含 userId 和 id
  */
 export interface WaterRecordData {
   amount: number;
@@ -27,55 +18,21 @@ export interface WaterRecordData {
  * @param db Drizzle ORM 数据库实例
  */
 export const createWaterStore = (db: Db) => {
-  /**
-   * 记录饮水
-   * 创建一条新的饮水记录
-   * @param userId 用户ID
-   * @param data 饮水数据（饮水量ml）
-   * @returns 创建成功的记录
-   */
-  const record = async (userId: string, data: WaterRecordData): Promise<WaterRecord> => {
-    const now = Date.now();
-    const recordData: NewWaterRecord = {
+  // 使用通用工厂创建标准 record/query/getLatest 方法
+  const store = createRecordStore({
+    db,
+    table: waterRecords,
+    label: 'water',
+    // 字段映射：把 WaterRecordData 转换为表插入格式
+    mapRecord: (userId, data: WaterRecordData, now) => ({
       userId,
       amount: data.amount,
       note: data.note,
       timestamp: data.timestamp ?? now,
-    };
+    }),
+  });
 
-    const result = await db.insert(waterRecords).values(recordData).returning();
-    logger.info('[store:water] recorded userId=%s amount=%s', userId, result[0].amount);
-    return result[0];
-  };
-
-  /**
-   * 查询饮水记录历史
-   * 支持按时间范围筛选和限制返回数量
-   * @param userId 用户ID
-   * @param options 查询选项（时间范围、限制数量）
-   * @returns 饮水记录列表，按时间倒序排列
-   */
-  const query = async (userId: string, options: QueryOptions = {}): Promise<WaterRecord[]> => {
-    const { startDate, endDate, limit } = options;
-
-    // 构建过滤条件，将用户ID与时间范围条件合并
-    const conditions = [eq(waterRecords.userId, userId)];
-    if (startDate !== undefined) {
-      conditions.push(gte(waterRecords.timestamp, startDate));
-    }
-    if (endDate !== undefined) {
-      conditions.push(lte(waterRecords.timestamp, endDate));
-    }
-
-    return db
-      .select()
-      .from(waterRecords)
-      .where(and(...conditions))
-      .orderBy(desc(waterRecords.timestamp))
-      .limit(limit ?? 100);
-  };
-
-  return { record, query };
+  return store;
 };
 
 /**
