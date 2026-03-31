@@ -13,18 +13,23 @@ src/
 │   ├── chronic/
 │   ├── diet/
 │   ├── exercise/
-│   ├── heartbeat/              #   心跳任务管理
+│   ├── heartbeat/            #   心跳任务管理（store 用原生 SQLite）
 │   ├── medication/
 │   ├── memory/
 │   ├── observation/
 │   ├── profile/
 │   ├── sleep/
 │   ├── symptom/
-│   └── water/
+│   ├── water/
+│   └── cron/                 #   仅 prompt.md（tools 在 src/cron/，store 在 src/store/）
 ├── agent/                    # Agent 核心
 │   ├── factory.ts            # 创建 Agent 实例（从 features 收集 tools）
 │   ├── tool-factory.ts       # createQueryTool 查询工具工厂（共享）
 │   ├── tools.ts              # 各功能 tools 聚合入口
+│   └── index.ts              # 导出
+├── bot/                      # 用户 Bot 管理
+│   ├── bot-manager.ts        # BotManager：管理每用户 UserBot 生命周期、通道绑定
+│   ├── user-bot.ts           # UserBot：封装单用户的 Agent + Session + Channels
 │   └── index.ts              # 导出
 ├── prompts/                  # 模块化提示词
 │   ├── core/                 # 核心角色定义
@@ -34,27 +39,35 @@ src/
 │   ├── manager.ts            # 会话生命周期管理（含过期摘要生成）
 │   └── index.ts              # 导出
 ├── store/                    # 共享存储基础设施
-│   ├── db.ts                 # 数据库连接（含完整 schema 注册）
-│   ├── schema.ts             # 所有表结构定义（14个表，Drizzle 要求集中）
+│   ├── db.ts                 # 数据库连接
+│   ├── schema.ts             # 所有表结构定义（17个表，Drizzle 要求集中）
 │   ├── record-store.ts       # createRecordStore 通用工厂（共享）
+│   ├── channel-binding-store.ts # 通道绑定存储（用户-通道绑定 CRUD）
+│   ├── cron-store.ts         # 定时任务存储（cron_jobs 表 CRUD）
 │   ├── logs.ts               # 应用日志存储
 │   ├── messages.ts           # 消息历史存储
 │   ├── summary.ts            # 对话摘要存储
+│   ├── json-utils.ts         # JSON 安全解析/序列化工具
 │   └── index.ts              # Store 统一入口（外观模式，聚合各 features 的 store）
 ├── heartbeat/                # 心跳机制
 │   ├── scheduler.ts          # 定时调度器（15分钟）
 │   ├── runner.ts             # LLM 驱动的心跳检查（读取 DB 任务 + 用户上下文 → LLM 决策）
 │   └── index.ts              # 导出
 ├── cron/                     # 定时任务系统
-│   ├── types.ts              # 数据结构定义
-│   ├── service.ts            # CronService（调度、持久化、执行）
+│   ├── service.ts            # CronService（调度、持久化到 SQLite、执行）
 │   ├── tools.ts              # LLM 工具（创建/查看/删除任务）
 │   └── index.ts              # 导出
 ├── channels/                 # 通道适配器
 │   ├── types.ts              # 类型定义
 │   ├── handler.ts            # 消息处理器
+│   ├── factory.ts            # ChannelFactory 接口（通道注册模式）
+│   ├── registry.ts           # 通道注册表（获取所有/指定工厂）
+│   ├── qq-factory.ts         # QQ 通道工厂实现
 │   ├── websocket.ts          # WebSocket 通道
 │   ├── qq.ts                 # QQ Bot 通道
+│   └── index.ts              # 导出
+├── server/                   # HTTP API 服务
+│   ├── routes.ts             # Hono 路由（通道管理、用户绑定、状态查询 API）
 │   └── index.ts              # 导出
 ├── infrastructure/           # 基础设施
 │   └── logger.ts             # Pino 日志
@@ -65,7 +78,8 @@ src/
 ### 架构特点
 
 - **按功能域组织**: 每个功能的 store、tools、prompt 在同一个 `features/<name>/` 目录下，改一个功能不用跳目录
-- **通道无关**: 消息处理与通信通道解耦，支持 WebSocket 和 QQ Bot
+- **每用户 Bot 实例**: `BotManager` 管理每用户的 `UserBot`（Agent + Session + Channels），支持独立的生命周期
+- **通道无关**: 消息处理与通信通道解耦，通过 `ChannelFactory` 注册模式支持动态添加通道
 - **统一存储外观**: Store 类作为统一入口（外观模式），内部从 features 导入各 store，公共 API 不变
 - **共享工厂**: `createRecordStore` 和 `createQueryTool` 提供通用 record/query/getLatest 模式，简单功能直接复用
 - **自定义 store**: medication、chronic、memory、profile 等有特殊逻辑的功能保持手写实现
@@ -88,7 +102,8 @@ src/
 | chronic | 手写 | add/update/deactivate, 无 timestamp 列 |
 | memory | 手写 | save/query/remove/getAll |
 | profile | 手写 | get/upsert |
-| heartbeat | 手写 | getEnabledTasks/listAll/add/remove/toggle |
+| heartbeat | 手写（原生 SQLite） | getEnabledTasks/addTask/removeTask/setEnabled |
+| cron | 仅 prompt.md | tools 在 src/cron/，store 在 src/store/cron-store.ts |
 
 ## 通道
 
@@ -110,7 +125,14 @@ src/
 
 ### QQ Bot
 
-通过 `pure-qqbot` 库实现，自动回复用户消息（不支持流式，累积后发送）。
+通过 `pure-qqbot` 库实现，自动回复用户消息（不支持流式，累积后发送）。QQ 凭证通过 Web 登录页绑定，存储在 `channel_bindings` 表中，不再使用环境变量。
+
+### 通道注册
+
+通道通过 `ChannelFactory` 接口注册到 `ChannelRegistry`，支持动态添加新通道：
+- 每个工厂定义通道类型、配置字段、帮助文本
+- `QqChannelFactory` 实现 QQ 通道的注册和创建
+- 用户通过 HTTP API（`/api/bind`）绑定通道凭证
 
 ### 通道能力声明
 
@@ -177,9 +199,11 @@ src/
 ## 命令
 
 ```bash
+bun run dev        # 启动服务 + Web 前端（开发模式）
 bun run server     # 启动服务 (端口 3001)
-bun run build      # 编译
+bun run build      # 编译 TypeScript + Web 前端
 bun run typecheck  # 类型检查
+bun run db:push    # 推送 schema 变更到 SQLite
 ```
 
 ## 配置
@@ -191,17 +215,19 @@ bun run typecheck  # 类型检查
 PORT=3001
 DB_PATH=./data/healthclaw.db
 
-# QQ Bot (可选)
-QQBOT_APP_ID=your_app_id
-QQBOT_APP_SECRET=your_app_secret
-QQBOT_CLIENT_SECRET=your_client_secret  # 可选，默认使用 APP_SECRET
+# QQ Bot 通过 Web 登录页绑定，不再使用环境变量
+# 凭证存储在 channel_bindings 表中
 
 # LLM
 LLM_PROVIDER=anthropic
 LLM_MODEL=claude-sonnet-4-6
 
-# 日志
-LOG_LEVEL=debug    # debug / info / warn / error
+# 心跳
+HEARTBEAT_INTERVAL_MS=900000  # 心跳检查间隔（默认 15 分钟）
+
+# 其他
+TEST_MODE=0          # 设为 1 时不记录历史和摘要
+LOG_LEVEL=info       # debug / info / warn / error
 NODE_ENV=development
 ```
 
@@ -240,6 +266,8 @@ logger.error('[app] fatal error=%s', err.message);
 | `conversation_summaries` | 对话摘要（短期记忆） |
 | `logs` | 应用日志 |
 | `heartbeat_tasks` | 用户心跳任务 |
+| `channel_bindings` | 用户通道绑定（存储 QQ 等通道凭证） |
+| `cron_jobs` | 定时任务（支持 at/every/cron 三种调度） |
 
 ### Agent 工具
 
@@ -331,7 +359,7 @@ LLM 可在对话中为用户创建定时任务，支持三种调度模式：
 - `cronExpr`: cron 表达式（如 "0 9 * * *"=每天9点）
 - `at`: 一次性（指定时间执行后自动删除）
 
-任务通过 `CronService` 管理，持久化到 JSON 文件，重启后自动恢复。
+任务通过 `CronService` 管理，持久化到 `cron_jobs` SQLite 表，重启后自动恢复。
 
 ### 记忆系统
 
@@ -345,7 +373,47 @@ LLM 可在对话中为用户创建定时任务，支持三种调度模式：
 - 最近30天的摘要注入上下文
 - 超过30天自动过期
 
+### 用户 Bot 管理
+
+`BotManager` 管理每用户的 `UserBot` 实例：
+- `UserBot` 封装单用户的 Agent + SessionManager + Channels
+- 用户通过 HTTP API 或 Web 登录页绑定通道（如 QQ）
+- 绑定时自动创建 UserBot 实例并启动通道监听
+- 支持解绑（删除通道绑定并停止 Bot）
+
+### HTTP API
+
+通过 Hono 提供 REST API（定义在 `src/server/routes.ts`）：
+- `GET /api/channels` - 获取可用通道列表
+- `POST /api/bind` - 绑定用户通道（提交通道凭证）
+- `DELETE /api/bind/:userId` - 解绑用户通道
+- `GET /api/status/:userId` - 查询用户 Bot 状态
+
 
 # 重要规则，用户手动填写，禁止修改
+
+## 核心原则（不可违反，不可修改）
+
+### 原则一：用户消息永久保留
+
+用户的所有消息都是关于身体健康的，具有不可替代的价值。必须永久保留，绝不允许丢失。
+
+- 原始消息是系统的 source of truth，是最高优先级的数据资产
+- 即使当前处理不完美也没关系，只要原始数据在，未来可以用更好的模型重新分析
+- 健康数据的价值随时间递增——一条记录单独看没意义，积累数月就能看到趋势
+- 禁止实现任何自动删除或过期清理消息的机制
+- 禁止导出可能被误用来删除消息的接口（如 `clear()` 函数）
+
+### 原则二：零硬编码，智能全交给 LLM
+
+代码只做基础设施（数据存取、通道传输、调度），所有分析、决策、判断全部交给 LLM。
+
+- 工具只提供数据存取能力，不包含任何健康判断逻辑
+- 不硬编码健康阈值（BMI 范围、热量上限、血压标准等），这些由提示词引导 LLM
+- 不在代码中做数据过滤或筛除，原始数据完整交给 LLM，由 LLM 决定哪些相关
+- 需要新的分析能力时，加数据 + 加提示词，而不是加代码逻辑
+
+## 编码规范
+
 - 添加详细的中文注释，解释每个函数和重要代码块的作用
 - 避免过度设计，保持代码简洁易懂

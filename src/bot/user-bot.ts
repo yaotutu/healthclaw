@@ -160,6 +160,9 @@ export class UserBot {
       await this.messageHandler(message, context);
     });
 
+    // 启动渠道监听（连接 QQ 等远程服务，开始接收消息）
+    await channel.start();
+
     this.channels.set(channel.name, channel);
 
     // 如果是可主动推送的渠道，记录下来

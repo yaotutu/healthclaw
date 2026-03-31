@@ -77,7 +77,7 @@ const dbStream = {
  * 只输出 warn 及以上级别的日志，保持控制台干净
  * 使用 pino-pretty 格式化输出
  */
-const consoleLevel = process.env.CONSOLE_LOG_LEVEL || 'warn';
+const consoleLevel = process.env.CONSOLE_LOG_LEVEL || 'info';
 
 export const logger = pino(
   { level: process.env.LOG_LEVEL || 'info' },
