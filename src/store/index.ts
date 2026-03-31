@@ -37,52 +37,10 @@ import {
   type HealthObservation,
 } from './schema';
 import type { Database } from 'bun:sqlite';
-import { readFileSync, readdirSync } from 'fs';
-import { join } from 'path';
-import { createHash } from 'crypto';
 // Drizzle 迁移工具：用于从 SQL 文件自动建表/改表，替代手写 initTables
 import { migrate } from 'drizzle-orm/bun-sqlite/migrator';
 // 结构化日志，记录迁移完成等事件
 import { logger } from '../infrastructure/logger';
-
-/**
- * 为已有数据库填充 Drizzle 迁移日志
- *
- * 当数据库是由旧版 initTables() 创建的（没有 __drizzle_migrations 表），
- * 直接调用 migrate() 会因 CREATE TABLE 失败（表已存在）。
- * 此函数读取迁移文件，计算哈希并插入迁移日志，使 migrate() 跳过已应用的迁移。
- * @param sqlite 底层 SQLite 连接
- * @param migrationsFolder 迁移文件目录路径
- */
-function seedMigrationJournal(sqlite: Database, migrationsFolder: string): void {
-  // 创建迁移跟踪表（与 Drizzle 内部使用的结构一致）
-  sqlite.run(`
-    CREATE TABLE IF NOT EXISTS __drizzle_migrations (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      hash TEXT NOT NULL,
-      created_at INTEGER
-    )
-  `);
-
-  // 读取迁移日志，获取所有迁移条目的 tag 和时间戳
-  const journalPath = join(migrationsFolder, 'meta', '_journal.json');
-  const journal = JSON.parse(readFileSync(journalPath, 'utf-8'));
-
-  for (const entry of journal.entries) {
-    // 读取迁移 SQL 文件内容并计算 SHA-256 哈希
-    const sqlPath = join(migrationsFolder, `${entry.tag}.sql`);
-    const sqlContent = readFileSync(sqlPath, 'utf-8');
-    const hash = createHash('sha256').update(sqlContent).digest('hex');
-
-    // 将该迁移标记为已应用，migrate() 会跳过它
-    sqlite.run(
-      'INSERT INTO __drizzle_migrations (hash, created_at) VALUES (?, ?)',
-      [hash, entry.when]
-    );
-  }
-
-  logger.info('[store] seeded migration journal for existing database');
-}
 
 // 导出所有存储创建函数
 export {
@@ -190,22 +148,7 @@ export class Store {
 
     // 使用 Drizzle 迁移管理表结构（替代原来的 raw SQL initTables）
     // 从 ./drizzle 目录读取迁移 SQL 文件，自动建表和创建索引
-
-    // 兼容旧版数据库：旧版由 initTables() 创建，没有 __drizzle_migrations 表
-    // 需要先填充迁移日志，否则 migrate() 会因表已存在而失败
-    const migrationsFolder = './drizzle';
-    const hasExistingTables = sqlite.prepare(
-      "SELECT name FROM sqlite_master WHERE type='table' AND name='body_records'"
-    ).get();
-    const hasMigrationsTable = sqlite.prepare(
-      "SELECT name FROM sqlite_master WHERE type='table' AND name='__drizzle_migrations'"
-    ).get();
-
-    if (hasExistingTables && !hasMigrationsTable) {
-      seedMigrationJournal(sqlite, migrationsFolder);
-    }
-
-    migrate(db, { migrationsFolder });
+    migrate(db, { migrationsFolder: './drizzle' });
     logger.info('[store] database migrated');
 
     // 初始化各存储模块（Drizzle 迁移已确保表存在，初始化顺序无关）
