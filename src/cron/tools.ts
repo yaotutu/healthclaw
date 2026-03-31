@@ -6,7 +6,6 @@
 import { Type } from '@sinclair/typebox';
 import type { AgentTool } from '@mariozechner/pi-agent-core';
 import type { CronService } from './service';
-import type { CronSchedule } from './types';
 
 // ==================== 工具参数 Schema ====================
 
@@ -42,22 +41,23 @@ type RemoveCronJobParams = typeof RemoveCronJobParamsSchema;
 
 /**
  * 格式化调度配置为可读的中文描述
- * @param schedule 调度配置
+ * @param kind 调度类型
+ * @param params 调度参数
  * @returns 可读的调度描述
  */
-function formatSchedule(schedule: CronSchedule): string {
-  switch (schedule.kind) {
+function formatSchedule(kind: string, params: { everyMs?: number; expr?: string; atMs?: number }): string {
+  switch (kind) {
     case 'every': {
-      const seconds = Math.round((schedule.everyMs ?? 0) / 1000);
+      const seconds = Math.round((params.everyMs ?? 0) / 1000);
       if (seconds < 60) return `每${seconds}秒`;
       if (seconds < 3600) return `每${Math.round(seconds / 60)}分钟`;
       if (seconds < 86400) return `每${Math.round(seconds / 3600)}小时`;
       return `每${Math.round(seconds / 86400)}天`;
     }
     case 'cron':
-      return `cron: ${schedule.expr}`;
+      return `cron: ${params.expr}`;
     case 'at':
-      return `一次性: ${schedule.atMs ? new Date(schedule.atMs).toLocaleString('zh-CN') : '未设置'}`;
+      return `一次性: ${params.atMs ? new Date(params.atMs).toLocaleString('zh-CN') : '未设置'}`;
     default:
       return '未知';
   }
@@ -100,17 +100,20 @@ export const createCronTools = (
       }
 
       // 根据 LLM 提供的参数确定调度类型
-      let schedule: CronSchedule;
+      let scheduleKind: 'at' | 'every' | 'cron';
+      let scheduleParams: { atMs?: number; everyMs?: number; expr?: string };
       let name: string;
       let deleteAfterRun = false;
 
       if (params.everySeconds) {
         // 间隔模式
-        schedule = { kind: 'every', everyMs: params.everySeconds * 1000 };
-        name = formatSchedule(schedule);
+        scheduleKind = 'every';
+        scheduleParams = { everyMs: params.everySeconds * 1000 };
+        name = formatSchedule('every', scheduleParams);
       } else if (params.cronExpr) {
         // cron 表达式模式
-        schedule = { kind: 'cron', expr: params.cronExpr, tz: params.tz };
+        scheduleKind = 'cron';
+        scheduleParams = { expr: params.cronExpr };
         name = `cron: ${params.cronExpr}`;
       } else if (params.at) {
         // 一次性模式
@@ -121,7 +124,8 @@ export const createCronTools = (
             details: {},
           };
         }
-        schedule = { kind: 'at', atMs };
+        scheduleKind = 'at';
+        scheduleParams = { atMs };
         name = `一次性: ${params.at}`;
         deleteAfterRun = true;
       } else {
@@ -132,7 +136,11 @@ export const createCronTools = (
       }
 
       // 创建任务
-      const job = cronService.addJob(name, schedule, {
+      const job = await cronService.addJob(name, {
+        kind: scheduleKind,
+        ...scheduleParams,
+        tz: params.tz,
+      }, {
         message: params.message,
         deliver: true,
         channel,
@@ -156,7 +164,7 @@ export const createCronTools = (
     description: '查看当前用户的所有定时任务',
     parameters: ListCronJobsParamsSchema,
     execute: async (_toolCallId, _params, _signal) => {
-      const jobs = cronService.listJobsByUser(userId);
+      const jobs = await cronService.listJobsByUser(userId);
 
       if (jobs.length === 0) {
         return {
@@ -166,11 +174,12 @@ export const createCronTools = (
       }
 
       const lines = jobs.map(j => {
-        const scheduleDesc = formatSchedule(j.schedule);
-        const nextRun = j.state.nextRunAtMs
-          ? new Date(j.state.nextRunAtMs).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })
-          : '无';
-        return `- [${j.id}] ${scheduleDesc}: ${j.payload.message}（下次执行: ${nextRun}）`;
+        const scheduleDesc = formatSchedule(j.scheduleKind, {
+          everyMs: j.scheduleEvery ?? undefined,
+          expr: j.scheduleExpr ?? undefined,
+          atMs: j.scheduleAt ?? undefined,
+        });
+        return `- [${j.id}] ${scheduleDesc}: ${j.message}（上次执行: ${j.lastRunAt ? new Date(j.lastRunAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }) : '未执行'}）`;
       });
 
       return {
@@ -190,16 +199,16 @@ export const createCronTools = (
     description: '删除一个指定的定时任务',
     parameters: RemoveCronJobParamsSchema,
     execute: async (_toolCallId, params, _signal) => {
-      const job = cronService.getJob(params.jobId);
+      const job = await cronService.getJob(params.jobId);
       // 验证任务属于当前用户
-      if (!job || job.payload.to !== userId) {
+      if (!job || job.userId !== userId) {
         return {
           content: [{ type: 'text', text: `未找到任务 ID: ${params.jobId}` }],
           details: {},
         };
       }
 
-      const removed = cronService.removeJob(params.jobId);
+      const removed = await cronService.removeJob(params.jobId);
       return {
         content: [{ type: 'text', text: removed ? `已删除定时任务 "${job.name}"（${params.jobId}）` : `删除失败: ${params.jobId}` }],
         details: { removed, jobId: params.jobId },

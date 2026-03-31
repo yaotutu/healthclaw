@@ -122,15 +122,13 @@ async function checkUser(
 
 /**
  * 执行心跳任务
- * 获取所有用户 → 对每个用户从数据库读心跳任务 → 发给 LLM 决策
+ * 对每个用户从数据库读心跳任务 → 发给 LLM 决策
  * 核心原则：代码只负责搬运数据，分析和决策完全由 LLM 完成
  * @param store Store 实例
+ * @param userIds 需要检查的用户ID列表（由 BotManager 提供）
  * @returns 需要推送的关怀消息列表
  */
-export async function runHeartbeat(store: Store): Promise<HeartbeatResult[]> {
-  // 获取所有有消息记录的用户ID
-  const userIdRows = store.sqlite.query('SELECT DISTINCT user_id FROM messages').all() as Array<{ user_id: string }>;
-  const userIds = userIdRows.map(r => r.user_id);
+export async function runHeartbeat(store: Store, userIds: string[]): Promise<HeartbeatResult[]> {
   if (userIds.length === 0) return [];
 
   const results: HeartbeatResult[] = [];

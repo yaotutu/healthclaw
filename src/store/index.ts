@@ -14,6 +14,7 @@ import { createMedicationStore, type MedicationStore } from '../features/medicat
 import { createChronicStore, type ChronicStore } from '../features/chronic/store';
 import { createObservationStore, type ObservationStore } from '../features/observation/store';
 import { createHeartbeatTaskStore, type HeartbeatTaskStore } from '../features/heartbeat/store';
+import { createCronJobStore, type CronJobStore } from './cron-store';
 import {
   userProfiles,
   bodyRecords,
@@ -56,6 +57,7 @@ export {
   createChronicStore,
   createObservationStore,
   createHeartbeatTaskStore,
+  createCronJobStore,
 };
 
 // 导出所有 schema 表
@@ -93,6 +95,7 @@ export type {
   ChronicStore,
   ObservationStore,
   HeartbeatTaskStore,
+  CronJobStore,
   Message,
   UserProfile,
   MemoryRecord,
@@ -137,6 +140,9 @@ export class Store {
   // 心跳任务存储
   readonly heartbeatTask: HeartbeatTaskStore;
 
+  // 定时任务存储
+  readonly cronJobs: CronJobStore;
+
   constructor(dbPath: string) {
     const { db, sqlite } = createDb(dbPath);
     this.db = db;
@@ -159,6 +165,7 @@ export class Store {
     this.chronic = createChronicStore(this.db);
     this.observation = createObservationStore(this.db);
     this.heartbeatTask = createHeartbeatTaskStore(this.sqlite);
+    this.cronJobs = createCronJobStore(this.db);
   }
 
   /** 关闭数据库连接 */

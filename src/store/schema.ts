@@ -468,6 +468,58 @@ export type ChannelBinding = typeof channelBindings.$inferSelect;
 export type NewChannelBinding = typeof channelBindings.$inferInsert;
 
 /**
+ * 定时任务表
+ * 存储用户通过对话创建的定时任务，由 node-cron 调度执行
+ * 支持三种调度模式：at（一次性）、every（间隔循环）、cron（cron 表达式）
+ */
+export const cronJobs = sqliteTable('cron_jobs', {
+  /** 任务ID（8位随机字符串） */
+  id: text('id').primaryKey(),
+  /** 用户ID，任务所属用户 */
+  userId: text('user_id').notNull(),
+  /** 任务名称（自动生成的可读描述） */
+  name: text('name').notNull(),
+  /** 是否启用 */
+  enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
+  /** 调度类型：at=一次性, every=间隔循环, cron=cron表达式 */
+  scheduleKind: text('schedule_kind', { enum: ['at', 'every', 'cron'] }).notNull(),
+  /** 一次性执行时间戳（毫秒），kind=at 时使用 */
+  scheduleAt: integer('schedule_at'),
+  /** 间隔时间（毫秒），kind=every 时使用 */
+  scheduleEvery: integer('schedule_every'),
+  /** cron 表达式（如 "0 9 * * *"），kind=cron 时使用 */
+  scheduleExpr: text('schedule_expr'),
+  /** 时区（如 "Asia/Shanghai"），仅 cron 类型使用 */
+  scheduleTz: text('schedule_tz'),
+  /** 发送给 Agent 的指令内容 */
+  message: text('message').notNull(),
+  /** 是否将 Agent 的回复推送给用户 */
+  deliver: integer('deliver', { mode: 'boolean' }).notNull().default(true),
+  /** 指定推送的通道 */
+  channel: text('channel'),
+  /** 一次性任务执行后是否自动删除 */
+  deleteAfterRun: integer('delete_after_run', { mode: 'boolean' }).notNull().default(false),
+  /** 上次执行时间戳 */
+  lastRunAt: integer('last_run_at'),
+  /** 上次执行状态 */
+  lastStatus: text('last_status'),
+  /** 上次执行错误信息 */
+  lastError: text('last_error'),
+  /** 创建时间戳 */
+  createdAt: integer('created_at').notNull(),
+  /** 更新时间戳 */
+  updatedAt: integer('updated_at').notNull(),
+}, (table) => [
+  /** 用户ID索引，加速按用户查询定时任务 */
+  index('idx_cron_jobs_user_id').on(table.userId),
+]);
+
+/** 定时任务查询结果类型 */
+export type CronJobRecord = typeof cronJobs.$inferSelect;
+/** 定时任务插入类型 */
+export type NewCronJob = typeof cronJobs.$inferInsert;
+
+/**
  * 应用日志表
  * 存储应用运行日志（info 及以上级别），写入数据库而非控制台输出
  */

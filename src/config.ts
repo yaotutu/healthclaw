@@ -35,9 +35,6 @@ export const config = {
     intervalMs: Number(process.env.HEARTBEAT_INTERVAL_MS) || 15 * 60 * 1000,
   },
 
-  /** 定时任务相关配置 */
-  cron: {
-    /** 定时任务存储文件路径 */
-    storePath: process.env.CRON_STORE_PATH || './data/cron/jobs.json',
-  },
+  /** 定时任务相关配置（任务定义存储在 SQLite cron_jobs 表中） */
+  cron: {},
 };

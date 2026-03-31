@@ -10,7 +10,9 @@ export interface HeartbeatOptions {
   store: Store;
   /** 扫描间隔（毫秒），默认 15 分钟 */
   intervalMs: number;
-  /** 向用户发送消息的回调函数（存储 + 推送） */
+  /** 获取所有需要检查的用户ID列表（由 BotManager 提供） */
+  getUserIds: () => string[];
+  /** 向用户发送消息的回调函数 */
   sendToUser: (userId: string, message: string) => Promise<void>;
 }
 
@@ -27,7 +29,7 @@ export interface HeartbeatOptions {
  * @returns 包含 stop 方法的对象，用于停止调度器
  */
 export function startHeartbeatScheduler(options: HeartbeatOptions): { stop: () => void } {
-  const { store, intervalMs, sendToUser } = options;
+  const { store, intervalMs, getUserIds, sendToUser } = options;
 
   /**
    * 单次心跳检查
@@ -36,7 +38,8 @@ export function startHeartbeatScheduler(options: HeartbeatOptions): { stop: () =
   const tick = async () => {
     try {
       logger.info('[heartbeat] tick');
-      const results = await runHeartbeat(store);
+      const userIds = getUserIds();
+      const results = await runHeartbeat(store, userIds);
       // 逐个发送关怀消息
       for (const result of results) {
         try {
