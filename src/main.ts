@@ -80,10 +80,8 @@ async function main() {
   dbLogWriter.init(store.logs);
   logger.info('[app] database initialized path=%s', config.dbPath);
 
-  // 2. Bot 管理器（管理所有用户的独立 Bot 实例）
-  const botManager = new BotManager(store);
-
-  // 3. 定时任务服务（任务定义存储在 SQLite，调度由 node-cron 负责）
+  // 2. 定时任务服务（先创建，因为 BotManager 需要注入 cronService）
+  // 任务定义存储在 SQLite，调度由 node-cron 负责
   const cronService = new CronService({
     store: store.cronJobs,
     onJob: async (job) => {
@@ -104,6 +102,9 @@ async function main() {
     },
   });
   await cronService.start();
+
+  // 3. Bot 管理器（管理所有用户的独立 Bot 实例，注入 cronService 以支持定时任务）
+  const botManager = new BotManager(store, cronService);
 
   // 4. 创建 Hono 应用（API 路由 + 前端静态文件）
   const honoApp = createApp(botManager);
