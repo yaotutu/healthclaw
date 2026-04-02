@@ -76,6 +76,7 @@ export class BotManager {
 
     // 创建 UserBot 并添加渠道
     const bot = new UserBot(userId, this.store, this.cronService);
+    logger.info('[bot-manager] DEBUG cronService=%s for userId=%s', typeof this.cronService, userId);
     await bot.addChannel(channel);
 
     // 注册到管理器

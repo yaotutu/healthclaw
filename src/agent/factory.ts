@@ -173,7 +173,13 @@ export const createHealthAgent = async (options: CreateAgentOptions) => {
     tools.addHeartbeatTask,
     tools.listHeartbeatTasks,
     tools.removeHeartbeatTask,
-  ];
+    // 定时任务工具（仅在 cronService 可用时存在）
+    ...(tools.scheduleCron ? [
+      tools.scheduleCron,
+      tools.listCronJobs,
+      tools.removeCronJob,
+    ] : []),
+  ].filter((t): t is NonNullable<typeof t> => t != null);
 
   // 使用 assembler 动态组装系统提示词
   // 包含静态模板（角色、能力、规则）和动态上下文（档案、最近记录、活跃症状、记忆等）

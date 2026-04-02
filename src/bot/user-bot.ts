@@ -56,6 +56,7 @@ export class UserBot {
     private cronService?: CronService,
   ) {
     this.userId = userId;
+    logger.info('[user-bot] DEBUG cronService=%s for userId=%s', typeof this.cronService, userId);
 
     // 创建 Agent 工厂函数：为这个用户创建专属 Agent
     const createAgent = async (uid: string, messages: Message[]) =>
