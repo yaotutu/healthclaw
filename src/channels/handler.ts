@@ -5,6 +5,7 @@ import type { ChannelMessage, ChannelContext } from './types';
 import { logger } from '../infrastructure/logger';
 import { withTimeContext } from '../infrastructure/time';
 import { assembleSystemPrompt } from '../prompts/assembler';
+import { extractAssistantText } from '../agent/event-utils';
 
 export interface CreateMessageHandlerOptions {
   sessions: SessionManager;
@@ -13,23 +14,6 @@ export interface CreateMessageHandlerOptions {
 
 export const createMessageHandler = (options: CreateMessageHandlerOptions) => {
   const { sessions, store } = options;
-
-  const extractAssistantText = (events: AgentEvent[]): string => {
-    for (let i = events.length - 1; i >= 0; i--) {
-      const event = events[i];
-      if (event.type === 'message_end' && event.message.role === 'assistant') {
-        const msg = event.message;
-        if (Array.isArray(msg.content)) {
-          for (const block of msg.content) {
-            if (block.type === 'text' && 'text' in block && typeof block.text === 'string') {
-              return block.text;
-            }
-          }
-        }
-      }
-    }
-    return '';
-  };
 
   return async (message: ChannelMessage, context: ChannelContext): Promise<void> => {
     const { userId, content } = message;

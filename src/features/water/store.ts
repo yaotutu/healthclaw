@@ -2,6 +2,7 @@
 import type { Db } from '../../store/db';
 import { waterRecords, type WaterRecord } from '../../store/schema';
 import { createRecordStore, type QueryOptions } from '../../store/record-store';
+import { formatDate } from '../../infrastructure/time';
 
 /**
  * 饮水记录的数据接口
@@ -40,3 +41,15 @@ export const createWaterStore = (db: Db) => {
  * 饮水记录存储模块类型
  */
 export type WaterStore = ReturnType<typeof createWaterStore>;
+
+/**
+ * 格式化饮水记录为上下文展示文本
+ * @param records 饮水记录列表
+ * @returns 格式化后的文本，无记录时返回 null
+ */
+export const formatSection = (records: WaterRecord[]): string | null => {
+  if (records.length === 0) return null;
+  return '### 饮水记录\n' + records.map(r =>
+    `- ${formatDate(r.timestamp)}: ${r.amount}ml`
+  ).join('\n');
+};

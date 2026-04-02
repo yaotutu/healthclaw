@@ -2,7 +2,8 @@
 import type { Db } from '../../store/db';
 import { healthObservations, type HealthObservation } from '../../store/schema';
 import { createRecordStore, type QueryOptions } from '../../store/record-store';
-import { safeJsonStringify } from '../../store/json-utils';
+import { safeJsonParse, safeJsonStringify } from '../../store/json-utils';
+import { formatDate } from '../../infrastructure/time';
 
 /**
  * 健康观察记录的数据接口
@@ -43,3 +44,16 @@ export const createObservationStore = (db: Db) => {
  * 健康观察记录存储模块类型
  */
 export type ObservationStore = ReturnType<typeof createObservationStore>;
+
+/**
+ * 格式化健康观察记录为上下文展示文本
+ * @param records 健康观察记录列表
+ * @returns 格式化后的文本，无记录时返回 null
+ */
+export const formatSection = (records: HealthObservation[]): string | null => {
+  if (records.length === 0) return null;
+  return '### 健康观察\n' + records.map(r => {
+    const tags = safeJsonParse<string[]>(r.tags, []);
+    return `- ${formatDate(r.timestamp)}: ${r.content}${tags.length > 0 ? ' [' + tags.join(', ') + ']' : ''}`;
+  }).join('\n');
+};

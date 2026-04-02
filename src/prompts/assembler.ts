@@ -3,6 +3,14 @@ import { join, dirname } from 'path';
 import type { Store } from '../store';
 import type { UserProfile, MemoryRecord, ConversationSummary, ChronicCondition } from '../store/schema';
 import { safeJsonParse } from '../store/json-utils';
+import { formatSection as formatBodySection } from '../features/body/store';
+import { formatSection as formatDietSection } from '../features/diet/store';
+import { formatSection as formatSymptomSection } from '../features/symptom/store';
+import { formatSection as formatExerciseSection } from '../features/exercise/store';
+import { formatSection as formatSleepSection } from '../features/sleep/store';
+import { formatSection as formatWaterSection } from '../features/water/store';
+import { formatSection as formatMedicationSection } from '../features/medication/store';
+import { formatSection as formatObservationSection } from '../features/observation/store';
 
 /**
  * prompts 目录的根路径
@@ -78,25 +86,15 @@ function formatProfile(profile: UserProfile | undefined): string {
 }
 
 /**
- * 格式化时间戳为可读日期字符串
- * 使用中国时区（Asia/Shanghai）进行格式化
- * @param timestamp 毫秒时间戳
- * @returns 格式化的日期字符串，如 "2026/3/28 14:30:00"
- */
-function formatDate(timestamp: number): string {
-  return new Date(timestamp).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
-}
-
-/**
  * 查询并格式化最近各类型健康记录
- * 并行查询 6 种类型记录（身体、饮食、症状、运动、睡眠、饮水），各取最近 5 条
- * 每种类型的查询都带有 catch 兜底，确保单个类型查询失败不影响整体组装
+ * 并行查询 8 种类型记录，每种类型由对应的 feature 模块负责格式化
+ * assembler 只负责查询和拼装，不关心每种记录的字段细节
  * @param store Store 实例
  * @param userId 用户 ID
  * @returns 格式化后的最近记录文本，无任何记录时返回空字符串
  */
 async function formatRecentRecords(store: Store, userId: string): Promise<string> {
-  // 并行查询各类型记录，每种取最近 5 条
+  // 并行查询各类型记录
   const [body, diet, symptom, exercise, sleep, water, medication, observations] = await Promise.all([
     store.body.query(userId, { limit: 5 }).catch(() => []),
     store.diet.query(userId, { limit: 5 }).catch(() => []),
@@ -108,68 +106,18 @@ async function formatRecentRecords(store: Store, userId: string): Promise<string
     store.observation.query(userId, { limit: 5 }).catch(() => []),
   ]);
 
-  const sections: string[] = [];
+  // 委托各 feature 的 formatSection 格式化，过滤掉空结果
+  const sections = [
+    formatBodySection(body),
+    formatDietSection(diet),
+    formatSymptomSection(symptom),
+    formatExerciseSection(exercise),
+    formatSleepSection(sleep),
+    formatWaterSection(water),
+    formatMedicationSection(medication),
+    formatObservationSection(observations),
+  ].filter((s): s is string => s !== null);
 
-  // 格式化身体数据记录（体重、体脂率、BMI）
-  if (body.length > 0) {
-    sections.push('### 身体数据\n' + body.map(r =>
-      `- ${formatDate(r.timestamp)}: 体重${r.weight ? r.weight + 'kg' : '-'} ${r.bodyFat ? '体脂' + r.bodyFat + '%' : ''} ${r.bmi ? 'BMI ' + r.bmi : ''}`
-    ).join('\n'));
-  }
-
-  // 格式化饮食记录（食物名称、热量、餐次）
-  if (diet.length > 0) {
-    sections.push('### 饮食记录\n' + diet.map(r =>
-      `- ${formatDate(r.timestamp)}: ${r.food} ${r.calories ? r.calories + 'kcal' : ''} ${r.mealType ? '(' + r.mealType + ')' : ''}`
-    ).join('\n'));
-  }
-
-  // 格式化症状记录（描述、严重程度、身体部位、是否已解决）
-  if (symptom.length > 0) {
-    sections.push('### 症状记录\n' + symptom.map(r =>
-      `- ${formatDate(r.timestamp)}: ${r.description}${r.severity ? ' 严重程度' + r.severity + '/10' : ''}${r.bodyPart ? ' (' + r.bodyPart + ')' : ''}${r.resolvedAt ? ' [已解决]' : ''}`
-    ).join('\n'));
-  }
-
-  // 格式化运动记录（运动类型、时长、消耗热量）
-  if (exercise.length > 0) {
-    sections.push('### 运动记录\n' + exercise.map(r =>
-      `- ${formatDate(r.timestamp)}: ${r.type} ${r.duration ? r.duration + '分钟' : ''} ${r.calories ? '消耗' + r.calories + 'kcal' : ''}`
-    ).join('\n'));
-  }
-
-  // 格式化睡眠记录（将分钟转换为小时+分钟的更直观格式）
-  if (sleep.length > 0) {
-    sections.push('### 睡眠记录\n' + sleep.map(r => {
-      const hours = r.duration ? Math.floor(r.duration / 60) : 0;
-      const mins = r.duration ? r.duration % 60 : 0;
-      return `- ${formatDate(r.timestamp)}: ${hours}小时${mins}分钟${r.quality ? ' 质量' + r.quality + '/5' : ''}`;
-    }).join('\n'));
-  }
-
-  // 格式化饮水记录（饮水量）
-  if (water.length > 0) {
-    sections.push('### 饮水记录\n' + water.map(r =>
-      `- ${formatDate(r.timestamp)}: ${r.amount}ml`
-    ).join('\n'));
-  }
-
-  // 格式化正在服用的药物
-  if (medication.length > 0) {
-    sections.push('### 正在服用的药物\n' + medication.map(r =>
-      `- ${r.medication}${r.dosage ? ' ' + r.dosage : ''}${r.frequency ? ' (' + r.frequency + ')' : ''}`
-    ).join('\n'));
-  }
-
-  // 格式化最近的健康观察
-  if (observations.length > 0) {
-    sections.push('### 健康观察\n' + observations.map(r => {
-      const tags = safeJsonParse<string[]>(r.tags, []);
-      return `- ${formatDate(r.timestamp)}: ${r.content}${tags.length > 0 ? ' [' + tags.join(', ') + ']' : ''}`;
-    }).join('\n'));
-  }
-
-  // 所有类型都无记录时返回空字符串
   if (sections.length === 0) return '';
   return '## 最近记录\n\n' + sections.join('\n\n');
 }

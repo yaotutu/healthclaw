@@ -2,6 +2,7 @@
 import type { Db } from '../../store/db';
 import { sleepRecords, type SleepRecord } from '../../store/schema';
 import { createRecordStore, type QueryOptions } from '../../store/record-store';
+import { formatDate } from '../../infrastructure/time';
 
 /**
  * 睡眠记录的数据接口
@@ -48,3 +49,18 @@ export const createSleepStore = (db: Db) => {
  * 睡眠记录存储模块类型
  */
 export type SleepStore = ReturnType<typeof createSleepStore>;
+
+/**
+ * 格式化睡眠记录为上下文展示文本
+ * 将分钟转换为小时+分钟的更直观格式
+ * @param records 睡眠记录列表
+ * @returns 格式化后的文本，无记录时返回 null
+ */
+export const formatSection = (records: SleepRecord[]): string | null => {
+  if (records.length === 0) return null;
+  return '### 睡眠记录\n' + records.map(r => {
+    const hours = r.duration ? Math.floor(r.duration / 60) : 0;
+    const mins = r.duration ? r.duration % 60 : 0;
+    return `- ${formatDate(r.timestamp)}: ${hours}小时${mins}分钟${r.quality ? ' 质量' + r.quality + '/5' : ''}`;
+  }).join('\n');
+};

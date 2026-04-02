@@ -2,6 +2,7 @@
 import type { Db } from '../../store/db';
 import { bodyRecords, type BodyRecord } from '../../store/schema';
 import { createRecordStore, type QueryOptions } from '../../store/record-store';
+import { formatDate } from '../../infrastructure/time';
 
 /**
  * 身体数据记录的数据接口
@@ -45,3 +46,15 @@ export const createBodyStore = (db: Db) => {
  * 身体数据存储模块类型
  */
 export type BodyStore = ReturnType<typeof createBodyStore>;
+
+/**
+ * 格式化身体数据记录为上下文展示文本
+ * @param records 身体数据记录列表
+ * @returns 格式化后的文本，无记录时返回 null
+ */
+export const formatSection = (records: BodyRecord[]): string | null => {
+  if (records.length === 0) return null;
+  return '### 身体数据\n' + records.map(r =>
+    `- ${formatDate(r.timestamp)}: 体重${r.weight ? r.weight + 'kg' : '-'} ${r.bodyFat ? '体脂' + r.bodyFat + '%' : ''} ${r.bmi ? 'BMI ' + r.bmi : ''}`
+  ).join('\n');
+};

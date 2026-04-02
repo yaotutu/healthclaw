@@ -2,6 +2,7 @@
 import type { Db } from '../../store/db';
 import { exerciseRecords, type ExerciseRecord } from '../../store/schema';
 import { createRecordStore, type QueryOptions } from '../../store/record-store';
+import { formatDate } from '../../infrastructure/time';
 
 /**
  * 运动记录的数据接口
@@ -50,3 +51,15 @@ export const createExerciseStore = (db: Db) => {
  * 运动记录存储模块类型
  */
 export type ExerciseStore = ReturnType<typeof createExerciseStore>;
+
+/**
+ * 格式化运动记录为上下文展示文本
+ * @param records 运动记录列表
+ * @returns 格式化后的文本，无记录时返回 null
+ */
+export const formatSection = (records: ExerciseRecord[]): string | null => {
+  if (records.length === 0) return null;
+  return '### 运动记录\n' + records.map(r =>
+    `- ${formatDate(r.timestamp)}: ${r.type} ${r.duration ? r.duration + '分钟' : ''} ${r.calories ? '消耗' + r.calories + 'kcal' : ''}`
+  ).join('\n');
+};

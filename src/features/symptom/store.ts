@@ -9,6 +9,7 @@ import { eq, desc, and, gte, lte } from 'drizzle-orm';
 import type { Db } from '../../store/db';
 import { symptomRecords, type SymptomRecord, type NewSymptomRecord } from '../../store/schema';
 import { logger } from '../../infrastructure/logger';
+import { formatDate } from '../../infrastructure/time';
 
 /**
  * 查询选项接口
@@ -119,3 +120,15 @@ export const createSymptomStore = (db: Db) => {
  * 症状记录存储模块类型
  */
 export type SymptomStore = ReturnType<typeof createSymptomStore>;
+
+/**
+ * 格式化症状记录为上下文展示文本
+ * @param records 症状记录列表
+ * @returns 格式化后的文本，无记录时返回 null
+ */
+export const formatSection = (records: SymptomRecord[]): string | null => {
+  if (records.length === 0) return null;
+  return '### 症状记录\n' + records.map(r =>
+    `- ${formatDate(r.timestamp)}: ${r.description}${r.severity ? ' 严重程度' + r.severity + '/10' : ''}${r.bodyPart ? ' (' + r.bodyPart + ')' : ''}${r.resolvedAt ? ' [已解决]' : ''}`
+  ).join('\n');
+};

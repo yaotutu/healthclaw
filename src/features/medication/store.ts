@@ -123,3 +123,15 @@ export const createMedicationStore = (db: Db) => {
  * 用药记录存储模块类型
  */
 export type MedicationStore = ReturnType<typeof createMedicationStore>;
+
+/**
+ * 格式化用药记录为上下文展示文本（展示正在服用的药物）
+ * @param records 用药记录列表
+ * @returns 格式化后的文本，无记录时返回 null
+ */
+export const formatSection = (records: MedicationRecord[]): string | null => {
+  if (records.length === 0) return null;
+  return '### 正在服用的药物\n' + records.map(r =>
+    `- ${r.medication}${r.dosage ? ' ' + r.dosage : ''}${r.frequency ? ' (' + r.frequency + ')' : ''}`
+  ).join('\n');
+};

@@ -2,6 +2,7 @@
 import type { Db } from '../../store/db';
 import { dietRecords, type DietRecord } from '../../store/schema';
 import { createRecordStore, type QueryOptions } from '../../store/record-store';
+import { formatDate } from '../../infrastructure/time';
 
 /**
  * 饮食记录的数据接口
@@ -52,3 +53,15 @@ export const createDietStore = (db: Db) => {
  * 饮食记录存储模块类型
  */
 export type DietStore = ReturnType<typeof createDietStore>;
+
+/**
+ * 格式化饮食记录为上下文展示文本
+ * @param records 饮食记录列表
+ * @returns 格式化后的文本，无记录时返回 null
+ */
+export const formatSection = (records: DietRecord[]): string | null => {
+  if (records.length === 0) return null;
+  return '### 饮食记录\n' + records.map(r =>
+    `- ${formatDate(r.timestamp)}: ${r.food} ${r.calories ? r.calories + 'kcal' : ''} ${r.mealType ? '(' + r.mealType + ')' : ''}`
+  ).join('\n');
+};

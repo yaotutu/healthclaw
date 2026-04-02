@@ -5,6 +5,16 @@
  */
 
 /**
+ * 格式化时间戳为可读日期字符串
+ * 使用中国时区（Asia/Shanghai）进行格式化
+ * @param timestamp 毫秒时间戳
+ * @returns 格式化的日期字符串，如 "2026/3/28 14:30:00"
+ */
+export function formatDate(timestamp: number): string {
+  return new Date(timestamp).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
+}
+
+/**
  * 获取当前时间的可读字符串（含星期和时区）
  * @returns 如 "2026-04-02 14:30:00 (星期四) (Asia/Shanghai)"
  */
