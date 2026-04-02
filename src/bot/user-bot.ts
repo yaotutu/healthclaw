@@ -8,6 +8,7 @@ import type { CronService } from '../cron/service';
 import { config } from '../config';
 import { logger } from '../infrastructure/logger';
 import { withTimeContext, formatDate } from '../infrastructure/time';
+import { assembleSystemPrompt } from '../prompts/assembler';
 
 /**
  * 每用户独立运行单元（无状态版本）
@@ -54,7 +55,12 @@ export class UserBot {
       });
 
     // 创建消息处理器（使用 createAgent 工厂，不依赖 SessionManager）
-    this.messageHandler = createMessageHandler({ createAgent, store });
+    this.messageHandler = createMessageHandler({
+      createAgent,
+      onAgentCreated: (agent) => { this.currentAgent = agent; },
+      onAgentDone: () => { this.currentAgent = null; },
+      store,
+    });
   }
 
   /**
@@ -111,6 +117,17 @@ export class UserBot {
         });
 
         try {
+          // 保存触发的消息到数据库（所有消息必须永久保留）
+          await this.store.messages.appendMessage(this.userId, {
+            role: 'user',
+            content: message,
+            timestamp: Date.now(),
+          });
+
+          // 刷新动态上下文（确保使用最新数据）
+          const updatedPrompt = await assembleSystemPrompt(this.store, this.userId);
+          agent.setSystemPrompt(updatedPrompt);
+
           await agent.prompt(withTimeContext(message));
         } finally {
           unsubscribe();

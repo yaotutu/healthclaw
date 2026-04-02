@@ -91,7 +91,7 @@ async function main() {
       logger.info('[cron] executing id=%s name=%s userId=%s', job.id, job.name, userId);
       cronService.setCronContext(true);
       try {
-        // 通过 BotManager 获取/创建 Bot，复用 Agent + Session
+        // 通过 BotManager 获取/创建 Bot，创建临时 Agent 处理
         const bot = await botManager.getOrCreateBot(userId);
         await bot.promptAndDeliver(job.message, job.deliver);
       } catch (err) {
@@ -115,7 +115,7 @@ async function main() {
   // 6. WebSocket 通道（保留作为开发/调试用途）
   const wsChannel = createWebSocketChannel({ server, path: '/ws' });
   wsChannel.onMessage(async (message, context) => {
-    // 统一通过 BotManager 获取/创建 Bot，复用 Agent + Session + Handler
+    // 统一通过 BotManager 获取/创建 Bot，使用无状态 Agent 处理
     const bot = await botManager.getOrCreateBot(message.userId);
     await bot.handleIncomingMessage(message, context);
   });

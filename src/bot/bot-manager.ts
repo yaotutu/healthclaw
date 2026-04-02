@@ -160,14 +160,14 @@ export class BotManager {
   /**
    * 获取已有 Bot，或为未绑定用户创建临时 Bot
    * 用于 WebSocket 开发/调试场景：用户未通过绑定流程，但需要通过 WebSocket 交互
-   * 临时 Bot 只有 Agent + Session，没有渠道，不能主动推送
+   * 临时 Bot 没有渠道，不能主动推送
    * @param userId 用户ID
    */
   async getOrCreateBot(userId: string): Promise<UserBot> {
     const existing = this.bots.get(userId);
     if (existing) return existing;
 
-    // 创建无渠道的裸 Bot（只有 Agent + Session）
+    // 创建无渠道的裸 Bot
     const bot = new UserBot(userId, this.store, this.cronService);
     this.bots.set(userId, bot);
 

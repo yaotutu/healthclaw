@@ -11,6 +11,10 @@ import { config } from '../config';
 export interface CreateMessageHandlerOptions {
   /** Agent 工厂：接收 userId 和历史消息，返回临时 Agent */
   createAgent: (userId: string, messages: Message[]) => Promise<Agent>;
+  /** Agent 创建后的回调，用于外部跟踪当前活跃的 Agent（如 abort 支持） */
+  onAgentCreated?: (agent: Agent) => void;
+  /** Agent 处理完成后的回调，用于清理外部引用 */
+  onAgentDone?: () => void;
   store: Store;
 }
 
@@ -50,7 +54,7 @@ function maybeGenerateSummary(store: Store, userId: string): void {
 }
 
 export const createMessageHandler = (options: CreateMessageHandlerOptions) => {
-  const { createAgent, store } = options;
+  const { createAgent, onAgentCreated, onAgentDone, store } = options;
 
   return async (message: ChannelMessage, context: ChannelContext): Promise<void> => {
     const { userId, content } = message;
@@ -65,6 +69,7 @@ export const createMessageHandler = (options: CreateMessageHandlerOptions) => {
 
       // 3. 创建临时 Agent
       const agent = await createAgent(userId, messages);
+      onAgentCreated?.(agent);
 
       // 4. 订阅 message_end 事件捕获助手响应
       let assistantMessage: any = null;
@@ -120,6 +125,7 @@ export const createMessageHandler = (options: CreateMessageHandlerOptions) => {
         }
       } finally {
         unsubscribe();
+        onAgentDone?.();
       }
     } catch (err) {
       const errMsg = (err as Error).message;
