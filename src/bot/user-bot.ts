@@ -21,8 +21,10 @@ export class UserBot {
   private store: Store;
   private cronService?: CronService;
   private channels: Map<string, ChannelAdapter> = new Map();
-  /** 支持主动推送的渠道列表（用于心跳、Cron 等场景） */
+  /** 支持主动推送的渠道列表 */
   private deliverableChannels: DeliverableChannel[] = [];
+  /** 主通道名称（第一个绑定的通道），用于 Agent 创建时标识通道 */
+  private primaryChannel: string = 'websocket';
   /** 串行锁：保证同一用户的消息和 promptAndDeliver 按顺序执行 */
   private queue: Promise<void> = Promise.resolve();
   /** 当前正在运行的 Agent 引用（用于 abort） */
@@ -44,13 +46,13 @@ export class UserBot {
     this.store = store;
     this.cronService = cronService;
 
-    // Agent 工厂：为这个用户创建临时 Agent
+    // Agent 工厂：为这个用户创建临时 Agent（channel 在 addChannel 时更新）
     const createAgent = async (uid: string, messages: Message[]) =>
       createHealthAgent({
         store,
         userId: uid,
         messages,
-        channel: 'qq',
+        channel: this.primaryChannel,
         cronService,
       });
 
@@ -102,7 +104,7 @@ export class UserBot {
           store: this.store,
           userId: this.userId,
           messages,
-          channel: 'qq',
+          channel: this.primaryChannel,
           cronService: this.cronService,
         });
 
@@ -192,6 +194,11 @@ export class UserBot {
     // 启动渠道监听
     await channel.start();
     this.channels.set(channel.name, channel);
+
+    // 第一个绑定的通道作为主通道（用于 Agent 创建时的 channel 参数）
+    if (this.channels.size === 1) {
+      this.primaryChannel = channel.name;
+    }
 
     // 如果是可主动推送的渠道，记录下来
     if ('sendToUser' in channel) {
