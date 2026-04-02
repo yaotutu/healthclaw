@@ -1,4 +1,3 @@
-import type { AgentEvent } from '@mariozechner/pi-agent-core';
 import { createHealthAgent } from '../agent';
 import { extractAssistantText } from '../agent/event-utils';
 import { createSessionManager, generateConversationSummary } from '../session';
@@ -91,27 +90,25 @@ export class UserBot {
    */
   async promptAndDeliver(message: string, deliver: boolean = true): Promise<string | null> {
     try {
-      // 获取或创建会话（包含 Agent 实例）
       const session = await this.session.getOrCreate(this.userId);
 
-      // 订阅事件流，收集 Agent 响应
-      const events: AgentEvent[] = [];
+      // 直接从 message_end 事件捕获助手消息
+      let assistantMessage: any = null;
       const unsubscribe = session.agent.subscribe((event) => {
-        events.push(event);
+        if (event.type === 'message_end' && event.message.role === 'assistant') {
+          assistantMessage = event.message;
+        }
       });
 
-      // 触发 Agent 处理（注入当前时间，确保 cron 等场景也能精确感知时间）
       await session.agent.prompt(withTimeContext(message));
       unsubscribe();
 
-      // 提取响应文本
-      const responseText = extractAssistantText(events);
+      const responseText = assistantMessage ? extractAssistantText(assistantMessage) : '';
       if (!responseText) {
         logger.warn('[user-bot] promptAndDeliver no response userId=%s', this.userId);
         return null;
       }
 
-      // deliver=true 时保存响应并推送给用户（Cron 任务可通过 deliver=false 仅执行不推送）
       if (deliver) {
         await this.store.messages.appendMessage(this.userId, {
           role: 'assistant',
