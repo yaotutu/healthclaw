@@ -29,14 +29,14 @@ src/
 │   └── index.ts              # 导出
 ├── bot/                      # 用户 Bot 管理
 │   ├── bot-manager.ts        # BotManager：管理每用户 UserBot 生命周期、通道绑定
-│   ├── user-bot.ts           # UserBot：封装单用户的 Agent + Session + Channels
+│   ├── user-bot.ts           # UserBot：无状态，每条消息创建临时 Agent，串行锁保序
 │   └── index.ts              # 导出
 ├── prompts/                  # 模块化提示词
 │   ├── core/                 # 核心角色定义
 │   ├── rules/                # 行为规则（安全、风格、主动性、分析指导等）
 │   └── assembler.ts          # 提示词组装器（扫描 features/*/prompt.md）
-├── session/                  # 会话管理
-│   ├── manager.ts            # 会话生命周期管理（含过期摘要生成）
+├── session/                  # 对话摘要生成
+│   ├── manager.ts            # generateConversationSummary（LLM 压缩对话）
 │   └── index.ts              # 导出
 ├── store/                    # 共享存储基础设施
 │   ├── db.ts                 # 数据库连接
@@ -78,7 +78,9 @@ src/
 ### 架构特点
 
 - **按功能域组织**: 每个功能的 store、tools、prompt 在同一个 `features/<name>/` 目录下，改一个功能不用跳目录
-- **每用户 Bot 实例**: `BotManager` 管理每用户的 `UserBot`（Agent + Session + Channels），支持独立的生命周期
+- **每用户 Bot 实例**: `BotManager` 管理每用户的 `UserBot`（无状态 Agent + Channels），支持独立的生命周期
+- **无状态 Agent**: 每条消息从 DB 加载上下文、创建临时 Agent、用完即弃，进程重启不丢状态
+- **串行锁**: 同一用户的消息通过 Promise 链串行处理，保证顺序，支持 abort
 - **通道无关**: 消息处理与通信通道解耦，通过 `ChannelFactory` 注册模式支持动态添加通道
 - **统一存储外观**: Store 类作为统一入口（外观模式），内部从 features 导入各 store，公共 API 不变
 - **共享工厂**: `createRecordStore` 和 `createQueryTool` 提供通用 record/query/getLatest 模式，简单功能直接复用
@@ -225,6 +227,9 @@ LLM_MODEL=claude-sonnet-4-6
 # 心跳
 HEARTBEAT_INTERVAL_MS=900000  # 心跳检查间隔（默认 15 分钟）
 
+# 会话
+SESSION_SUMMARY_INTERVAL_MS=14400000  # 惰性摘要触发间隔（默认 4 小时）
+
 # 其他
 TEST_MODE=0          # 设为 1 时不记录历史和摘要
 LOG_LEVEL=info       # debug / info / warn / error
@@ -369,14 +374,16 @@ LLM 可在对话中为用户创建定时任务，支持三种调度模式：
 - 每次对话注入上下文
 
 **短期记忆** (`conversation_summaries` 表):
-- 会话过期时由 LLM 生成摘要
+- 用户消息间隔超过阈值（默认 4 小时）时，惰性触发 LLM 生成上一段对话摘要
+- 触发时机在 handler 中：用户发消息时检查间隔，异步生成（fire-and-forget，不阻塞）
 - 最近30天的摘要注入上下文
 - 超过30天自动过期
 
 ### 用户 Bot 管理
 
 `BotManager` 管理每用户的 `UserBot` 实例：
-- `UserBot` 封装单用户的 Agent + SessionManager + Channels
+- `UserBot` 封装单用户的无状态 Agent + Channels，每条消息创建临时 Agent，用完即弃
+- 串行锁（Promise 链）保证同一用户的消息按顺序处理，支持 abort
 - 用户通过 HTTP API 或 Web 登录页绑定通道（如 QQ）
 - 绑定时自动创建 UserBot 实例并启动通道监听
 - 支持解绑（删除通道绑定并停止 Bot）
