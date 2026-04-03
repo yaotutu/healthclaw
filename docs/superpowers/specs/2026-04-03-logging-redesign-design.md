@@ -28,16 +28,35 @@
 
 ```typescript
 // src/infrastructure/logger.ts 新增
-export const createLogger = (module: string) => {
+
+/** 子 Logger 返回类型 */
+export interface ModuleLogger {
+  info(msg: string, ...args: any[]): void;
+  error(msg: string, ...args: any[]): void;
+  warn(msg: string, ...args: any[]): void;
+  debug(msg: string, ...args: any[]): void;
+  /** 暴露底层 Pino child，用于需要传结构化数据的场景（如 LLM payload） */
+  readonly raw: pino.Logger;
+}
+
+/**
+ * 创建绑定 module 的子 Logger
+ * 自动填充数据库 module 列 + 消息前缀 [module]
+ */
+export const createLogger = (module: string): ModuleLogger => {
   const child = logger.child({ module });
   return {
-    info: (msg: string, ...args: unknown[]) => child.info(`[${module}] ${msg}`, ...args),
-    error: (msg: string, ...args: unknown[]) => child.error(`[${module}] ${msg}`, ...args),
-    warn: (msg: string, ...args: unknown[]) => child.warn(`[${module}] ${msg}`, ...args),
-    debug: (msg: string, ...args: unknown[]) => child.debug(`[${module}] ${msg}`, ...args),
+    info: (msg, ...args) => child.info(`[${module}] ${msg}`, ...args),
+    error: (msg, ...args) => child.error(`[${module}] ${msg}`, ...args),
+    warn: (msg, ...args) => child.warn(`[${module}] ${msg}`, ...args),
+    debug: (msg, ...args) => child.debug(`[${module}] ${msg}`, ...args),
+    raw: child,
   };
 };
 ```
+
+**注意：** `raw` 属性暴露底层 Pino child logger，用于需要传结构化数据的场景（如 LLM 的完整 payload）。
+大部分场景用 `log.info/error/warn/debug`，LLM 相关用 `log.raw.debug({ payload }, msg)`。
 
 使用方式：
 
@@ -92,9 +111,10 @@ ERROR [handler] qq push failed userId=xxx error=timeout
 | 场景 | 为什么不记 |
 |------|-----------|
 | 常规数据查询 | 没有状态变更，无排查价值 |
-| 常规数据写入（record_* 工具） | 消息历史已有完整记录，日志是重复的 |
-| 消息收发（handler processing） | 消息历史已有，日志是重复的 |
-| 完整 LLM request/response payload | 数据量大，应该是 debug 级别或按需查看 |
+| 常规数据写入（record_* 工具） | 消息历史已有完整记录，日志是重复的。例如 record-store.ts 的 `recorded userId=%s` |
+| 消息收发（handler processing） | 消息历史已有，日志是重复的。**但保留**状态变更日志：summary generated、request aborted |
+
+**handler 的边界情况：** "不记消息收发"指的是删除 `processing userId=xxx` 这类常规流程日志。但 handler 中的状态变更（如 summary generated、request aborted）属于 info/error，应该保留。
 
 ### 3. Module 命名规范
 
@@ -104,6 +124,7 @@ ERROR [handler] qq push failed userId=xxx error=timeout
 |-----------|---------|
 | `app` | main.ts |
 | `agent` | agent/factory.ts |
+| `llm` | agent/factory.ts（LLM 调用专用，与 agent 分开创建第二个实例） |
 | `bot` | bot/bot-manager.ts, bot/user-bot.ts |
 | `handler` | channels/handler.ts |
 | `ws` | channels/websocket.ts |
@@ -111,6 +132,8 @@ ERROR [handler] qq push failed userId=xxx error=timeout
 | `cron` | cron/service.ts, cron/tools.ts |
 | `heartbeat` | heartbeat/scheduler.ts, heartbeat/runner.ts |
 | `store` | store/*.ts, features/*/store.ts |
+| `api` | server/routes.ts |
+| `session` | session/manager.ts |
 
 store 层统一用 `store`，不区分子模块。具体操作什么表通过消息内容区分。
 
@@ -185,27 +208,29 @@ log.info('图片下载失败')              // 用英文
 
 | 文件 | 改动 |
 |------|------|
-| `src/infrastructure/logger.ts` | 新增 createLogger 工厂函数 |
+| `src/infrastructure/logger.ts` | 新增 createLogger 工厂函数 + ModuleLogger 类型 |
 | `CLAUDE.md` | 替换日志规范章节 |
-| `src/main.ts` | 改用 createLogger，去掉重复 cron 日志，去掉消息收发日志 |
-| `src/agent/factory.ts` | 改用 createLogger，LLM 日志降为 debug 摘要 |
-| `src/bot/bot-manager.ts` | 改用 createLogger |
-| `src/bot/user-bot.ts` | 改用 createLogger，去掉重复的 send 日志 |
-| `src/channels/handler.ts` | 改用 createLogger，去掉 processing/send 日志 |
-| `src/channels/websocket.ts` | 改用 createLogger |
-| `src/channels/qq.ts` | 改用 createLogger，中文改英文 |
-| `src/channels/qq-factory.ts` | 改用 createLogger |
-| `src/cron/service.ts` | 改用 createLogger |
-| `src/heartbeat/scheduler.ts` | 改用 createLogger |
-| `src/heartbeat/runner.ts` | 改用 createLogger |
-| `src/store/record-store.ts` | 改用 createLogger，去掉常规 insert 日志 |
-| `src/store/summary.ts` | 改用 createLogger |
-| `src/store/channel-binding-store.ts` | 改用 createLogger |
-| `src/features/profile/store.ts` | 改用 createLogger，去掉常规 upsert 日志 |
-| `src/features/memory/store.ts` | 改用 createLogger，去掉常规 save/remove 日志 |
-| `src/features/symptom/store.ts` | 改用 createLogger，去掉常规 record/resolve 日志 |
-| `src/features/chronic/store.ts` | 改用 createLogger，去掉常规 add/update 日志 |
-| `src/features/medication/store.ts` | 改用 createLogger，去掉常规 record/stop 日志 |
+| `src/main.ts` | 改用 createLogger('app')，删除 main.ts:91/98 的 cron executing/failed 日志（service.ts 已有） |
+| `src/agent/factory.ts` | 改用 createLogger('agent') + createLogger('llm')。LLM 日志降为 debug 摘要，用 `log.raw.debug({ payload }, msg)` 传结构化数据 |
+| `src/bot/bot-manager.ts` | 改用 createLogger('bot') |
+| `src/bot/user-bot.ts` | 改用 createLogger('bot')，去掉重复的 send 日志 |
+| `src/channels/handler.ts` | 改用 createLogger('handler')，删除 `processing` 日志，保留 `summary generated` 和 `request aborted` |
+| `src/channels/websocket.ts` | 改用 createLogger('ws') |
+| `src/channels/qq.ts` | 改用 createLogger('qq')，中文改英文 |
+| `src/channels/qq-factory.ts` | 改用 createLogger('qq') |
+| `src/cron/service.ts` | 改用 createLogger('cron') |
+| `src/heartbeat/scheduler.ts` | 改用 createLogger('heartbeat') |
+| `src/heartbeat/runner.ts` | 改用 createLogger('heartbeat') |
+| `src/server/routes.ts` | 改用 createLogger('api') |
+| `src/session/manager.ts` | 改用 createLogger('session')，新增 LLM 调用 debug 日志 |
+| `src/store/record-store.ts` | 改用 createLogger('store')，删除第 66 行 `recorded userId=%s` 日志 |
+| `src/store/summary.ts` | 改用 createLogger('store')，保留 summary saved 日志（状态变更） |
+| `src/store/channel-binding-store.ts` | 改用 createLogger('store') |
+| `src/features/profile/store.ts` | 改用 createLogger('store')，删除常规 upsert 日志 |
+| `src/features/memory/store.ts` | 改用 createLogger('store')，删除常规 save/remove 日志 |
+| `src/features/symptom/store.ts` | 改用 createLogger('store')，删除常规 record/resolve 日志 |
+| `src/features/chronic/store.ts` | 改用 createLogger('store')，删除常规 add/update/deactivate 日志 |
+| `src/features/medication/store.ts` | 改用 createLogger('store')，删除常规 record/stop 日志 |
 
 ## 不改的
 
