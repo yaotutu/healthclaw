@@ -93,7 +93,7 @@ export class BotManager {
    * @param credentials 凭据
    * @returns 绑定后的 userId
    */
-  async bind(channelType: string, credentials: Record<string, string>, options?: { force?: boolean }): Promise<string> {
+  async bind(channelType: string, credentials: Record<string, string>): Promise<string> {
     const factory = getChannelFactory(channelType);
     if (!factory) {
       throw new Error(`不支持的渠道类型: ${channelType}`);
@@ -107,24 +107,22 @@ export class BotManager {
     const channelId = this.extractChannelId(channelType, credentials);
     const userId = `${channelType}:${channelId}`;
 
-    log.info('bind channelType=%s channelId=%s userId=%s force=%s', channelType, channelId, userId, !!options?.force);
+    log.info('bind channelType=%s channelId=%s userId=%s', channelType, channelId, userId);
 
-    // 检查是否已绑定（精确匹配 userId）
-    const existing = await this.bindingStore.getActiveByUserId(userId);
-    if (existing) {
-      // 微信渠道：已有绑定时抛特殊错误码，让前端弹确认框
-      // 用户确认后通过 force=true 重新绑定
-      if (channelType === 'wechat' && !options?.force) {
-        log.info('wechat already bound userId=%s, waiting for user confirmation', userId);
-        throw new Error('WECHAT_REBIND_CONFIRM');
+    // 微信渠道：如果已存在绑定，先停用旧绑定（数据保留），再创建新绑定
+    // 因为每次扫码 botToken 不同，需要用新凭据创建新 Bot
+    if (channelType === 'wechat') {
+      const existing = await this.bindingStore.getActiveByUserId(userId);
+      if (existing) {
+        log.info('wechat already bound, replacing userId=%s', userId);
+        await this.unbindAllByChannelType('wechat');
       }
-      throw new Error(`该 ${factory.name} 已绑定，请先解绑`);
-    }
-
-    // 微信渠道 + force 模式：清掉所有旧微信绑定后重新创建
-    if (channelType === 'wechat' && options?.force) {
-      log.info('wechat force bind: cleaning up old wechat bindings userId=%s', userId);
-      await this.unbindAllByChannelType('wechat');
+    } else {
+      // 其他渠道：已绑定则报错
+      const existing = await this.bindingStore.getActiveByUserId(userId);
+      if (existing) {
+        throw new Error(`该 ${factory.name} 已绑定，请先解绑`);
+      }
     }
 
     // 写入绑定记录
@@ -143,39 +141,6 @@ export class BotManager {
 
     // 启动 Bot 实例
     await this.createAndStart(userId, channelType, credentials);
-
-    return userId;
-  }
-
-  /**
-   * 强制重新绑定微信渠道
-   * 用户在确认框中点击"确认重新绑定"后调用
-   * 不删除旧绑定记录，而是更新凭据 + 重启 Bot（因为 userId 不变，只是 botToken 变了）
-   * @param credentials 新的微信凭据
-   * @returns 绑定后的 userId
-   */
-  async bindForce(credentials: Record<string, string>): Promise<string> {
-    const channelId = this.extractChannelId('wechat', credentials);
-    const userId = `wechat:${channelId}`;
-
-    log.info('force rebind: updating credentials and restarting bot userId=%s', userId);
-
-    // 1. 停掉旧 Bot（保存游标后停止）
-    const oldBot = this.bots.get(userId);
-    if (oldBot) {
-      await this.saveWeChatCursor(userId, oldBot);
-      await oldBot.stop();
-      this.bots.delete(userId);
-      log.info('force rebind: old bot stopped userId=%s', userId);
-    }
-
-    // 2. 更新绑定记录中的凭据（新的 botToken、accountId 等）
-    await this.bindingStore.updateCredentials(userId, JSON.stringify(credentials));
-    log.info('force rebind: credentials updated userId=%s', userId);
-
-    // 3. 用新凭据创建并启动新 Bot
-    await this.createAndStart(userId, 'wechat', credentials);
-    log.info('force rebind: new bot started userId=%s', userId);
 
     return userId;
   }

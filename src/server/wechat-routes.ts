@@ -10,19 +10,15 @@ const log = createLogger('wechat');
  */
 interface WechatLoginState {
   /** 当前状态 */
-  status: 'waiting' | 'scanned' | 'confirmed' | 'needs_rebind' | 'expired' | 'error';
+  status: 'waiting' | 'scanned' | 'confirmed' | 'expired' | 'error';
   /** QR 码图片 URL */
   qrCodeUrl?: string;
   /** 登录成功后的 userId（绑定完成） */
   userId?: string;
-  /** 已有的旧绑定 userId（用于提示用户） */
-  existingUserId?: string;
   /** 错误信息 */
   error?: string;
   /** QR URL 的 Promise resolve（用于 POST /qrcode 等待 QR 就绪） */
   resolveQR?: (url: string) => void;
-  /** QR 登录成功后暂存的凭据，等用户确认后再绑定 */
-  pendingCredentials?: Record<string, string>;
 }
 
 /**
@@ -36,10 +32,7 @@ const loginStates = new Map<string, WechatLoginState>();
  * 流程：
  * 1. 前端调用 POST /qrcode 生成 QR 码
  * 2. 前端轮询 GET /login-status/:loginId 跟踪状态
- * 3. 用户用微信扫码
- * 4. 如果是新用户 → 自动绑定 → 返回 confirmed
- * 5. 如果已有绑定 → 返回 needs_rebind → 前端弹确认框
- * 6. 用户确认 → 调用 POST /confirm-rebind → 清旧绑新 → 返回 confirmed
+ * 3. 用户用微信扫码 → 后端自动绑定（重复绑定会自动替换旧绑定）→ 返回 confirmed
  *
  * @param botManager Bot 管理器实例
  * @returns Hono 子应用
@@ -100,24 +93,9 @@ export function createWechatRoutes(botManager: BotManager): Hono {
         state.userId = userId;
         state.status = 'confirmed';
       } catch (err) {
-        const errMsg = (err as Error).message;
-
-        if (errMsg === 'WECHAT_REBIND_CONFIRM') {
-          // 已有绑定，需要用户二次确认
-          // 暂存凭据，等用户通过 /confirm-rebind 确认后再绑定
-          log.info('rebind confirmation needed loginId=%s', loginId);
-          state.pendingCredentials = {
-            botToken: result.botToken,
-            baseUrl: result.baseUrl,
-            accountId: result.accountId,
-            ilinkUserId: result.userId || '',
-          };
-          state.status = 'needs_rebind';
-        } else {
-          log.error('bind attempt failed loginId=%s error=%s', loginId, errMsg);
-          state.error = errMsg;
-          state.status = 'error';
-        }
+        log.error('bind failed loginId=%s error=%s', loginId, (err as Error).message);
+        state.error = (err as Error).message;
+        state.status = 'error';
       }
     }).catch((err) => {
       log.error('QR login failed loginId=%s error=%s', loginId, err.message);
@@ -150,7 +128,7 @@ export function createWechatRoutes(botManager: BotManager): Hono {
       return c.json({ error: '登录会话不存在或已过期' }, 404);
     }
 
-    const { status, qrCodeUrl, userId, existingUserId, error } = state;
+    const { status, qrCodeUrl, userId, error } = state;
 
     // 终态 60 秒后清理，让客户端有时间获取最终状态
     if (status === 'confirmed' || status === 'error') {
@@ -158,50 +136,7 @@ export function createWechatRoutes(botManager: BotManager): Hono {
       setTimeout(() => loginStates.delete(loginId), 60_000);
     }
 
-    return c.json({ status, qrCodeUrl, userId, existingUserId, error });
-  });
-
-  /**
-   * POST /confirm-rebind
-   * 用户确认重新绑定：清掉旧绑定，用暂存的凭据创建新绑定
-   * 前端在用户点击确认按钮后调用此接口
-   */
-  router.post('/confirm-rebind', async (c) => {
-    const { loginId } = await c.req.json();
-    const state = loginStates.get(loginId);
-
-    if (!state) {
-      log.warn('confirm-rebind: session not found loginId=%s', loginId);
-      return c.json({ error: '登录会话不存在或已过期' }, 404);
-    }
-
-    if (state.status !== 'needs_rebind') {
-      log.warn('confirm-rebind: invalid state loginId=%s status=%s', loginId, state.status);
-      return c.json({ error: '当前状态不允许确认重新绑定' }, 400);
-    }
-
-    if (!state.pendingCredentials) {
-      log.error('confirm-rebind: no pending credentials loginId=%s', loginId);
-      return c.json({ error: '缺少登录凭据' }, 400);
-    }
-
-    try {
-      log.info('confirm-rebind: starting force bind loginId=%s', loginId);
-      const userId = await botManager.bindForce(state.pendingCredentials);
-
-      log.info('confirm-rebind: success loginId=%s userId=%s', loginId, userId);
-      state.userId = userId;
-      state.status = 'confirmed';
-      // 清理暂存凭据
-      state.pendingCredentials = undefined;
-
-      return c.json({ success: true, userId });
-    } catch (err) {
-      log.error('confirm-rebind: failed loginId=%s error=%s', loginId, (err as Error).message);
-      state.error = (err as Error).message;
-      state.status = 'error';
-      return c.json({ error: (err as Error).message }, 400);
-    }
+    return c.json({ status, qrCodeUrl, userId, error });
   });
 
   return router;
