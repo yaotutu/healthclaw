@@ -68,7 +68,11 @@ const convertMessages = (messages: Message[]): Array<UserMessage | AssistantMess
  * 以原始 JSON 格式存储到数据库，方便排查编码、内容等问题
  */
 const createLoggingStreamFn = () => {
+  let round = 0;
   return (model: unknown, context: Context, options?: unknown): AssistantMessageEventStream => {
+    round++;
+    // 提取模型名称（model 可能是对象）
+    const modelName = (model as any)?.model ?? (model as any)?.name ?? String(model);
     // 构建完整的请求报文（即发送给 LLM 的原始数据）
     const requestPayload = {
       model: model,
@@ -83,8 +87,8 @@ const createLoggingStreamFn = () => {
     // 请求摘要（info 级别，方便排查）
     const msgCount = context.messages?.length ?? 0;
     const toolNames = (context.tools?.map((t: any) => t.name ?? t) ?? []) as string[];
-    llmLog.info('request model=%s messages=%d tools=%d [%s]',
-      String(model), msgCount, toolNames.length, toolNames.join(', '));
+    llmLog.info('round=%d request model=%s messages=%d tools=%d [%s]',
+      round, modelName, msgCount, toolNames.length, toolNames.join(', '));
 
     const originalStream = streamSimple(model as any, context, options as any);
     const loggedStream = createAssistantMessageEventStream();
@@ -109,10 +113,10 @@ const createLoggingStreamFn = () => {
           const textBlocks = msg?.content?.filter?.((c: any) => c.type === 'text') ?? [];
           if (toolCalls.length > 0) {
             const callNames = toolCalls.map((c: any) => c.toolName ?? c.name ?? 'unknown').join(', ');
-            llmLog.info('response toolCalls=%d [%s]', toolCalls.length, callNames);
+            llmLog.info('round=%d response toolCalls=%d [%s]', round, toolCalls.length, callNames);
           } else if (textBlocks.length > 0) {
             const preview = String(textBlocks[0]?.text ?? '').slice(0, 80);
-            llmLog.info('response text=%s', preview);
+            llmLog.info('round=%d response text=%s', round, preview);
           }
         }
       } catch (err) {
