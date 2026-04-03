@@ -238,15 +238,73 @@ NODE_ENV=development
 
 ## 日志规范
 
-使用 pino 结构化日志，格式：`[模块名] 操作 key=value`
+使用 `createLogger(module)` 工厂函数创建模块专用 logger。
 
+### 创建 Logger
+
+每个模块文件顶部：
 ```typescript
-logger.info('[app] server started port=%d', 3001);
-logger.info('[qq] channel started');
-logger.error('[app] fatal error=%s', err.message);
+import { createLogger } from '../infrastructure/logger';
+const log = createLogger('handler');  // module 名见下表
 ```
 
-**禁止使用** `console.log`
+### Module 命名
+
+| module | 文件 |
+|--------|------|
+| app | main.ts |
+| agent | agent/factory.ts |
+| llm | agent/factory.ts（LLM 调用专用，与 agent 分开创建第二个实例） |
+| bot | bot/*.ts |
+| handler | channels/handler.ts |
+| ws | channels/websocket.ts |
+| qq | channels/qq*.ts |
+| cron | cron/*.ts |
+| heartbeat | heartbeat/*.ts |
+| store | store/*.ts, features/*/store.ts |
+| api | server/routes.ts |
+| session | session/*.ts |
+
+### 什么记
+
+**info — 状态变更**（发生了不可逆的事，需要知道它发生过）：
+- 服务启停：server started/stopped
+- 绑定变更：bot started/unbound userId=xxx channel=xxx
+- 定时任务增删：cron added/removed id=xxx
+- 心跳触发结果：heartbeat checked users=N alerts=N
+
+**error — 操作失败**（失败本身有排查价值）：
+- 外部调用失败：qq push failed userId=xxx error=xxx
+- 意料之外的异常：shutdown error=xxx
+- 降级处理：fallback send failed userId=xxx error=xxx
+
+**debug — 开发调试**（开发时开 debug 可见）：
+- LLM 调用摘要：LLM call model=xxx inputTokens=N outputTokens=N
+- 内部流程细节
+
+### 什么不记
+
+- **常规数据读写** — record_* 工具的调用、get_recent_* 查询结果。消息历史已有完整记录。
+- **消息收发** — handler processing。消息历史已有。但保留状态变更日志：summary generated、request aborted。
+- **完整 LLM payload** — 太大。只记 debug 级别的摘要。
+- **store 层的常规操作** — insert/update 成功。出了问题用 error 记。
+
+### 格式
+
+```typescript
+// 英文，key=value 参数
+log.info('server started port=%d', port);
+log.error('push failed userId=%s error=%s', userId, err.message);
+
+// LLM 结构化数据用 raw
+const llmLog = createLogger('llm');
+llmLog.raw.debug({ payload }, 'request model=%s', model);
+
+// 禁止
+console.log                          // 用 log.info/debug/error
+log.info('[handler] processing')     // module 前缀自动加，不要手写
+log.info('图片下载失败')              // 用英文
+```
 
 ## 存储
 
