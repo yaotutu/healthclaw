@@ -195,7 +195,7 @@ import { createLogger, dbLogWriter } from './infrastructure/logger';
 const log = createLogger('app');
 ```
 
-2. 将所有 `logger.info('[app] xxx', ...)` 改为 `log.info('xxx', ...)`，去掉 `[app]` 前缀。涉及行：65, 75, 76, 81, 130, 131, 132, 152, 155, 171, 174, 184。
+2. 将所有 `logger.xxx('[app] xxx', ...)` 改为 `log.xxx('xxx', ...)`，去掉 `[app]` 前缀。注意 `logger.warn` 变为 `log.warn`。涉及行：65, 75, 76, 81, 130, 131, 132, 152, 155(warn), 171, 174, 184。
 
 3. 删除 cron 相关日志（第 91、98 行），因为 `cron/service.ts` 已有相同日志：
 ```typescript
@@ -230,9 +230,10 @@ llmLog.raw.debug({ payload: requestPayload }, 'request model=%s inputTokens=%d',
 // 旧
 logger.info({ module: 'llm', payload: finalMessage }, '[llm] response');
 // 新
-llmLog.raw.debug({ payload: finalMessage }, 'response model=%s outputTokens=%d',
-  /* 从 response 中提取 token 数据 */);
+llmLog.raw.debug({ payload: finalMessage }, 'response');
 ```
+
+注意：response 日志只记 debug 级别，payload 通过 Pino 结构化数据传递。token 数据已包含在 payload 中，无需额外提取。
 
 4. 替换第 106 行 LLM error 日志：
 ```typescript
@@ -364,6 +365,7 @@ git commit -m "refactor: migrate bot/handler/channel layers to createLogger"
 - Modify: `src/heartbeat/scheduler.ts`
 - Modify: `src/heartbeat/runner.ts`
 - Modify: `src/server/routes.ts`
+- Modify: `src/session/manager.ts`
 
 - [ ] **Step 1: 改造 cron/service.ts**
 
@@ -374,6 +376,7 @@ git commit -m "refactor: migrate bot/handler/channel layers to createLogger"
 
 1. 替换 import，创建 `const log = createLogger('heartbeat');`
 2. 所有 `logger.xxx('[heartbeat] yyy', ...)` → `log.xxx('yyy', ...)`。涉及行：40, 47, 49, 53, 60, 66。
+3. **降级 tick 日志**：第 40 行 `logger.info('[heartbeat] tick')` 改为 `log.debug('tick')`。tick 每 15 分钟触发一次，没有可操作信息，属于 debug 级别。
 
 - [ ] **Step 3: 改造 heartbeat/runner.ts**
 
@@ -385,7 +388,27 @@ git commit -m "refactor: migrate bot/handler/channel layers to createLogger"
 1. 替换 import，创建 `const log = createLogger('api');`
 2. 所有 `logger.xxx('[api] yyy', ...)` → `log.xxx('yyy', ...)`。涉及行：51, 56, 85。
 
-- [ ] **Step 5: 运行类型检查**
+- [ ] **Step 5: 改造 session/manager.ts**
+
+当前 `session/manager.ts` 没有任何日志。按规范新增 LLM 调用 debug 日志：
+
+1. 添加 import：
+```typescript
+import { createLogger } from '../infrastructure/logger';
+const log = createLogger('session');
+```
+
+2. 在 LLM 调用前添加 debug 日志（第 38 行 `const stream = streamSimple(...)` 之前）：
+```typescript
+log.debug('generating summary messages=%d', recent.length);
+```
+
+3. 在 LLM 调用后（第 48 行 `return summary` 前）添加 debug 日志：
+```typescript
+log.debug('summary generated length=%d', summary.length);
+```
+
+- [ ] **Step 6: 运行类型检查**
 
 ```bash
 bun run typecheck
@@ -394,8 +417,8 @@ bun run typecheck
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/cron/service.ts src/heartbeat/scheduler.ts src/heartbeat/runner.ts src/server/routes.ts
-git commit -m "refactor: migrate cron/heartbeat/server to createLogger"
+git add src/cron/service.ts src/heartbeat/scheduler.ts src/heartbeat/runner.ts src/server/routes.ts src/session/manager.ts
+git commit -m "refactor: migrate cron/heartbeat/server/session to createLogger"
 ```
 
 ---
@@ -475,7 +498,19 @@ logger.info(`[store:${label}] recorded userId=%s`, userId);
 - **删除** 第 61 行 `recorded userId=%s ...` — 常规操作
 - **删除** 第 115 行 `stopped userId=%s ...` — 常规操作
 
-注意：删除日志后，如果 `log` 变量不再被使用，也删除 `log` 变量的创建行和 import 行（避免 unused import）。例如 record-store.ts 和各 feature store 如果删除了所有日志且没有 error 日志需要保留，可以完全移除 logger 导入。
+注意：以下文件删除所有日志后，`log` 变量不再被使用，应**完全移除** import 和 `log` 变量声明行：
+- `src/store/record-store.ts` — 删除后无任何日志调用，完全移除 import
+- `src/features/profile/store.ts` — 同上
+- `src/features/memory/store.ts` — 同上
+- `src/features/symptom/store.ts` — 同上
+- `src/features/chronic/store.ts` — 同上
+- `src/features/medication/store.ts` — 同上
+
+此外，`src/store/record-store.ts` 的 `createRecordStore` 工厂函数接受 `label` 参数，该参数仅用于日志消息。删除日志后，`label` 参数变为死代码。**保留 `label` 参数**不删除，因为它是公开 API 的一部分，且未来可能用于 error 日志。
+
+保留 logger 导入的文件（有 summary/channel-binding 等状态变更日志）：
+- `src/store/summary.ts` — 保留 `log` 和 import
+- `src/store/channel-binding-store.ts` — 保留 `log` 和 import
 
 - [ ] **Step 5: 运行类型检查**
 
