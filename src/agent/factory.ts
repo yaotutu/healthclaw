@@ -5,7 +5,8 @@ import { config } from '../config';
 import type { Store, Message } from '../store';
 import { logger } from '../infrastructure/logger';
 import { assembleSystemPrompt } from '../prompts/assembler';
-import { createTools } from './tools';
+import { createCommonTools } from './tools';
+import type { AgentTool } from '@mariozechner/pi-agent-core';
 import type { CronService } from '../cron/service';
 
 /**
@@ -131,20 +132,24 @@ export const createHealthAgent = async (options: CreateAgentOptions) => {
   const { store, userId, messages = [], channel = 'websocket', cronService } = options;
 
   const agentModel = getModel(config.llm.provider as any, config.llm.model);
-  const toolList = createTools(store, userId, channel, cronService);
+
+  // 创建可变的工具数组，传入引用供 load_skill 动态注入
+  const tools: AgentTool[] = [];
+  const commonTools = createCommonTools(store, userId, channel, cronService, tools);
+  tools.push(...commonTools);
 
   // 使用 assembler 动态组装系统提示词
   // 包含静态模板（角色、能力、规则）和动态上下文（档案、最近记录、活跃症状、记忆等）
   const systemPrompt = await assembleSystemPrompt(store, userId);
 
-  logger.info('[agent] created provider=%s model=%s tools=%d', config.llm.provider, config.llm.model, toolList.length);
+  logger.info('[agent] created provider=%s model=%s tools=%d', config.llm.provider, config.llm.model, tools.length);
 
   const agent = new Agent({
     initialState: {
       // 使用动态组装的系统提示词（包含用户档案、最近记录、活跃症状等上下文）
       systemPrompt,
       model: agentModel,
-      tools: toolList,
+      tools: tools,
       messages: convertMessages(messages),
       thinkingLevel: 'off',
     },
