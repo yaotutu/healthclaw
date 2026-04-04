@@ -89,7 +89,7 @@ const onWechatBindSuccess = (userId: string) => {
   <div class="login-page">
     <div class="page">
       <!-- 标题区域 -->
-      <div class="logo">Healthclaw</div>
+      <div class="logo">OHA</div>
       <div class="subtitle">选择渠道，开启你的专属健康顾问</div>
 
       <!-- 渠道选项卡 -->

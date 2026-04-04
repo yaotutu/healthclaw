@@ -24,7 +24,7 @@ export interface WeChatChannelOptions {
  * 使用 weixin-ilink 库内嵌连接微信 iLink Bot 服务器
  * 与 QQ 渠道模式相同：嵌入 SDK、长轮询接收消息、HTTP 发送回复
  *
- * 架构：Healthclaw ←HTTP 长轮询→ 微信 iLink Bot 服务器 ←→ 微信客户端
+ * 架构：OHA ←HTTP 长轮询→ 微信 iLink Bot 服务器 ←→ 微信客户端
  */
 export class WeChatChannel implements DeliverableChannel {
   readonly name = 'wechat';

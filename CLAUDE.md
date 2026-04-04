@@ -1,4 +1,4 @@
-# Healthclaw
+# Open Health Agent (OHA)
 
 个人健康顾问 Agent，支持 WebSocket 和 QQ Bot 通道提供健康数据记录和查询服务。
 

@@ -3,7 +3,7 @@
   "configVersion": 0,
   "workspaces": {
     "": {
-      "name": "healthclaw",
+      "name": "open-health-agent",
       "dependencies": {
         "@mariozechner/pi-agent-core": "^0.62.0",
         "@mariozechner/pi-ai": "^0.62.0",

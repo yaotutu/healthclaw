@@ -1,5 +1,5 @@
 {
-  "name": "healthclaw",
+  "name": "open-health-agent",
   "version": "1.0.0",
   "description": "Personal health advisor agent",
   "main": "dist/index.js",

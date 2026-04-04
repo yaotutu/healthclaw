@@ -1,10 +1,10 @@
-# Healthclaw
+# Open Health Agent (OHA)
 
-开源私人健康管家 — 帮你把健康数据收好、存牢、用起来。
+开源 AI 健康顾问 Agent — 帮你把健康数据收好、存牢、智能分析。
 
 健康数据是你最值钱的个人资产：体重、饮食、运动、睡眠、用药、症状……但它们散落在各处——Apple Health、运动手环、体检报告、聊天记录——换手机丢一部分，换平台丢一部分，从来没有一个地方能统一看到。
 
-Healthclaw 想做一件事：**把你的健康数据统一收集、永久保存、智能分析。**
+OHA 想做一件事：**把你的健康数据统一收集、永久保存、交给 AI 智能分析。**
 
 ## 为什么做这个
 
@@ -100,7 +100,7 @@ AI 自动提取数据并给出分析反馈。
 
 ```bash
 git clone <repo-url>
-cd healthclaw
+cd open-health-agent
 bun install
 ```
 
@@ -111,7 +111,7 @@ bun install
 ```bash
 # 服务器
 PORT=3001
-DB_PATH=./data/healthclaw.db
+DB_PATH=./data/oha.db
 
 # LLM
 LLM_PROVIDER=anthropic

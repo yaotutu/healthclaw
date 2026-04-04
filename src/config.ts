@@ -6,8 +6,8 @@
 export const config = {
   /** 服务器监听端口，默认 3001 */
   port: Number(process.env.PORT) || 3001,
-  /** SQLite 数据库文件路径，默认 ./data/healthclaw.db */
-  dbPath: process.env.DB_PATH || './data/healthclaw.db',
+  /** SQLite 数据库文件路径，默认 ./data/oha.db */
+  dbPath: process.env.DB_PATH || './data/oha.db',
   /** 测试模式：不加载历史消息，不生成对话摘要，默认关闭 */
   testMode: process.env.TEST_MODE === '1',
   /** 优雅关闭超时时间（毫秒），超时后强制退出进程 */
